@@ -1,0 +1,18 @@
+{
+  "name": "caprouter",
+  "version": "0.7.0",
+  "description": "Local capability bus: discover, route, probe, invoke and verify local skills, plugins and scripts over MCP, with deterministic acceptance checks and a local installer.",
+  "author": {
+    "name": "CapRouter"
+  },
+  "license": "MIT",
+  "keywords": [
+    "routing",
+    "capability",
+    "skills",
+    "cli-agents",
+    "audit"
+  ],
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

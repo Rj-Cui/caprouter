@@ -1,0 +1,56 @@
+{
+  "schema": "caprouter.pipeline.v1",
+  "id": "fiction-deslop",
+  "goal": "Strip AI tone from web-novel chapters and use the scripts bundled with demo-deslop for a blocking re-scan",
+  "steps": [
+    {
+      "id": "deslop",
+      "need": "web novel de-AI rewrite",
+      "preferred": ["skill:deslop-demo"],
+      "fallback": ["skill:tone-demo"],
+      "input": "{input}",
+      "output": "artifacts/deslop.md",
+      "acceptance": [
+        {
+          "type": "command",
+          "label": "ai-patterns",
+          "allow": true,
+          "cwd": "capability",
+          "argv": [
+            "node",
+            "scripts/check-ai-patterns.js",
+            "--check",
+            "--json",
+            "--fail-on=blocking",
+            "{output}"
+          ],
+          "expect_returncode": 0
+        },
+        {
+          "type": "command",
+          "label": "degeneration",
+          "allow": true,
+          "cwd": "capability",
+          "argv": [
+            "node",
+            "scripts/check-degeneration.js",
+            "--check",
+            "--json",
+            "--fail-on=blocking",
+            "{output}"
+          ],
+          "expect_returncode": 0
+        },
+        {
+          "type": "min_chars",
+          "value": 500,
+          "unit": "chars"
+        }
+      ],
+      "human_confirm": true,
+      "permissions": {
+        "shell": true
+      }
+    }
+  ]
+}

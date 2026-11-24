@@ -1,0 +1,64 @@
+{
+  "task_id": "market-scan-example",
+  "goal": "Research a web-novel niche market and deliver a verifiable 1500-character report",
+  "quality_gate": {
+    "max_attempts": 2,
+    "on_limit": "pause_and_report"
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "title": "Search public sources",
+      "capability": "retrieve",
+      "domain": "research",
+      "brief": "Search 5 public platforms for works, rankings and discussions about the target market; return only URL, title and platform",
+      "output_contract": {
+        "type": "url_list",
+        "format": "json"
+      },
+      "acceptance": [
+        "At least 20 URLs",
+        "Each entry includes platform and title",
+        "Do not fetch the full text"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "n2",
+      "title": "Write the report",
+      "capability": "generate",
+      "domain": "research",
+      "brief": "Using n1's sources, write a 1500±15% Chinese-character market report with at least 3 competitor comparisons",
+      "inputs": ["n1"],
+      "output_contract": {
+        "type": "report",
+        "format": "markdown",
+        "min_chars": 1275,
+        "max_chars": 1725
+      },
+      "acceptance": [
+        "1500±15% Chinese characters",
+        "At least 3 competitors",
+        "Every fact carries a source id"
+      ],
+      "top_k": 3
+    },
+    {
+      "id": "n3",
+      "title": "Independent verification",
+      "capability": "verify",
+      "domain": "research",
+      "brief": "Check each of n2's factual claims against the sources without reading the writer's reasoning; output only the verdict",
+      "inputs": ["n2"],
+      "output_contract": {
+        "type": "claim_ledger",
+        "format": "json"
+      },
+      "acceptance": [
+        "Each claim has source_id, quote and verdict",
+        "Unverifiable claims must be flagged"
+      ],
+      "top_k": 3
+    }
+  ]
+}

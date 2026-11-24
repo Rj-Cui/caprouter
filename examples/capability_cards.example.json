@@ -1,0 +1,65 @@
+{
+  "schema": "caprouter.capability-cards.v1",
+  "defaults": {
+    "min_confidence": 0.18,
+    "min_margin": 0.02,
+    "min_coverage": 0.12
+  },
+  "cards": {
+    "skill:demo-office-doc": {
+      "examples": [
+        "Extract page 3 of a PDF as PNG",
+        "Export A1:C10 of an xlsx as csv",
+        "Replace paragraph 3 of a docx with new text"
+      ],
+      "probe": {
+        "status": "pass",
+        "evidence": "behavioral",
+        "checks": [
+          {"task": "xlsx range -> csv", "status": "pass"},
+          {"task": "pdf page -> png", "status": "pass"}
+        ]
+      },
+      "input_schema": {"type": "object", "required": ["path", "anchor", "out"]},
+      "output_schema": {"type": "object", "required": ["out_path"]},
+      "permissions": {"fs": ["read", "write"], "net": false, "shell": false}
+    },
+    "skill:demo-pdf": {
+      "examples": [
+        "Summarize the main content of this PDF",
+        "Find the table data in this PDF"
+      ],
+      "probe": {
+        "status": "pass",
+        "evidence": "behavioral",
+        "checks": [
+          {"task": "summarize pdf", "status": "pass"},
+          {"task": "pdf -> docx (create)", "status": "fail", "reason": "reading only; cannot create or edit PDFs"}
+        ]
+      },
+      "permissions": {"fs": ["read"], "net": false, "shell": false}
+    },
+    "skill:demo-research": {
+      "examples": [
+        "Research the 2026 web-novel market",
+        "Collect 8 public sources and annotate their URLs"
+      ],
+      "probe": {
+        "status": "unknown",
+        "checks": []
+      },
+      "permissions": {"fs": [], "net": true, "shell": false}
+    },
+    "skill:demo-source": {
+      "examples": [
+        "Implement an API following the official docs",
+        "Verify the current usage of a library"
+      ],
+      "probe": {
+        "status": "unknown",
+        "checks": []
+      },
+      "permissions": {"fs": ["read"], "net": true, "shell": false}
+    }
+  }
+}

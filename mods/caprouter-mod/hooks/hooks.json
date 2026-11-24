@@ -1,0 +1,4 @@
+{
+  "description": "CapRouter prompt takeover hooks module",
+  "modules": ["./register.js"]
+}

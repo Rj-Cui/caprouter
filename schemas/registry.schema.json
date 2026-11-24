@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caprouter.local/schemas/registry.schema.json",
+  "title": "CapRouter Registry",
+  "type": "object",
+  "required": ["schema", "entries"],
+  "properties": {
+    "schema": { "const": "caprouter.registry.v1" },
+    "generated_at": { "type": "string" },
+    "workspace": { "type": "string" },
+    "roots": { "type": "object" },
+    "stats": { "type": "object" },
+    "duplicates": { "type": "array" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "name", "path"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "enum": ["skill", "plugin", "cli-agent", "project"] },
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "description": { "type": "string" },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "capabilities": { "type": "array", "items": { "type": "string" } },
+          "hash": { "type": "string" },
+          "verified_at": { "type": "string" },
+          "status": { "enum": ["verified", "unverified", "stale", "scanned"] }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

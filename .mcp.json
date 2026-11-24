@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "caprouter": {
+      "command": "python",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/bin/caprouter.py",
+        "mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "task_id": "phase1-smoke",
+  "goal": "Verify the Phase 1 execution layer: generate one fact sentence and have an independent verifier check it",
+  "quality_gate": {
+    "max_attempts": 1,
+    "on_limit": "pause_and_report"
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "title": "Generate a fact sentence",
+      "capability": "generate",
+      "domain": "general",
+      "brief": "Output exactly one sentence: 1+1=2. Do not explain.",
+      "output_contract": {
+        "type": "text",
+        "format": "markdown"
+      },
+      "acceptance": [
+        "The output contains 1+1=2"
+      ]
+    },
+    {
+      "id": "n2",
+      "title": "Independent verification",
+      "capability": "verify",
+      "domain": "general",
+      "brief": "Check whether n1's output contains 1+1=2; return only a JSON verdict",
+      "inputs": ["n1"],
+      "output_contract": {
+        "type": "claim_ledger",
+        "format": "json"
+      },
+      "acceptance": [
+        "n1's output contains 1+1=2"
+      ]
+    }
+  ]
+}

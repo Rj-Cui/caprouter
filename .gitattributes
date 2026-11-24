@@ -1,0 +1,17 @@
+# Normalize text files, but keep Windows scripts usable on every checkout.
+* text=auto
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Windows PowerShell 5.1 needs the UTF-8 BOM in scripts that contain non-ASCII;
+# the BOM is stored in the blob, these rules only pin line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary

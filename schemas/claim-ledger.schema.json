@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caprouter.local/schemas/claim-ledger.schema.json",
+  "title": "CapRouter Claim Ledger",
+  "type": "object",
+  "required": ["claims"],
+  "properties": {
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "quote", "snapshot_path", "snapshot_hash"],
+        "properties": {
+          "claim_id": { "type": "string" },
+          "source_id": { "type": "string" },
+          "quote": { "type": "string", "minLength": 1 },
+          "snapshot_path": { "type": "string", "minLength": 1 },
+          "snapshot_hash": { "type": "string", "pattern": "^sha256:" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

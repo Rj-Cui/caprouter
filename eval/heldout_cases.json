@@ -1,0 +1,90 @@
+{
+  "schema": "caprouter.routing-cases.v1",
+  "note": "Synthetic held-out template cases. The ids are demo placeholders: point expect_any at ids from your own registry (or replace the file with your own cases) before measuring routing quality. Do not tune against these cases; run once and report.",
+  "cases": [
+    {
+      "id": "debug-root-cause",
+      "need": "定位这个报错的根因并修复它",
+      "capability": "analyze",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-debugger"]
+    },
+    {
+      "id": "adr-documentation",
+      "need": "给这个模块补一份架构决策记录",
+      "capability": "generate",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "slides-from-content",
+      "need": "把这份材料做成演示文稿",
+      "capability": "format",
+      "domain": "office",
+      "expect_any": ["skill:demo-office"]
+    },
+    {
+      "id": "design-consistency",
+      "need": "检查页面设计和视觉一致性",
+      "capability": "verify",
+      "domain": "design",
+      "expect_any": ["skill:demo-reviewer"]
+    },
+    {
+      "id": "long-form-edit",
+      "need": "把这篇长文压缩到一半篇幅",
+      "capability": "transform",
+      "domain": "writing",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "security-review",
+      "need": "审查这个接口的权限与安全风险",
+      "capability": "verify",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-reviewer"]
+    },
+    {
+      "id": "performance-analysis",
+      "need": "分析这个页面的性能瓶颈",
+      "capability": "analyze",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-debugger"]
+    },
+    {
+      "id": "git-history",
+      "need": "整理这次提交记录并写发布说明",
+      "capability": "generate",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "academic-citation",
+      "need": "核对论文里的引用格式",
+      "capability": "verify",
+      "domain": "research",
+      "expect_any": ["skill:demo-reviewer"]
+    },
+    {
+      "id": "business-copy",
+      "need": "写一段产品介绍文案",
+      "capability": "generate",
+      "domain": "writing",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "image-transform",
+      "need": "把这张图片处理成统一尺寸",
+      "capability": "transform",
+      "domain": "media",
+      "expect_any": ["skill:demo-media"]
+    },
+    {
+      "id": "none-unavailable",
+      "need": "用一个不存在的功能完成这项工作",
+      "capability": "retrieve",
+      "domain": "research",
+      "expect_none": true
+    }
+  ]
+}

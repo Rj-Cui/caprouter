@@ -1,0 +1,9 @@
+{
+  "name": "caprouter-mod",
+  "version": "0.1.0",
+  "description": "CapRouter prompt takeover and status command for Claude Code.",
+  "author": {
+    "name": "CapRouter"
+  },
+  "license": "MIT"
+}

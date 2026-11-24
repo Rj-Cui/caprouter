@@ -1,0 +1,76 @@
+{
+  "schema": "caprouter.routing-cases.v1",
+  "note": "Synthetic template cases. The ids are demo placeholders: point expect_any at ids from your own registry (or replace the file with your own cases) before measuring routing quality.",
+  "cases": [
+    {
+      "id": "research-retrieve",
+      "need": "调研市场并收集公开来源",
+      "capability": "retrieve",
+      "domain": "research",
+      "expect_any": ["skill:demo-research"]
+    },
+    {
+      "id": "research-official-docs",
+      "need": "查找官方文档并核对出处",
+      "capability": "retrieve",
+      "domain": "research",
+      "expect_any": ["skill:demo-research"]
+    },
+    {
+      "id": "writing-report",
+      "need": "写一份结构化的分析报告",
+      "capability": "generate",
+      "domain": "writing",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "writing-rewrite",
+      "need": "把这段文字改写得更简洁",
+      "capability": "transform",
+      "domain": "writing",
+      "expect_any": ["skill:demo-writer"]
+    },
+    {
+      "id": "review-facts",
+      "need": "检查文档里的事实与引用是否一致",
+      "capability": "verify",
+      "domain": "writing",
+      "expect_any": ["skill:demo-reviewer"]
+    },
+    {
+      "id": "office-table",
+      "need": "把表格数据整理成 markdown 表格",
+      "capability": "format",
+      "domain": "office",
+      "expect_any": ["skill:demo-office"]
+    },
+    {
+      "id": "design-poster",
+      "need": "设计一张活动海报",
+      "capability": "design",
+      "domain": "design",
+      "expect_any": ["skill:demo-designer"]
+    },
+    {
+      "id": "code-review",
+      "need": "审查这段代码并指出风险",
+      "capability": "verify",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-reviewer"]
+    },
+    {
+      "id": "debug-root-cause",
+      "need": "定位这个报错的根因",
+      "capability": "analyze",
+      "domain": "engineering",
+      "expect_any": ["skill:demo-debugger"]
+    },
+    {
+      "id": "none-match",
+      "need": "证明一个尚未被证实的数学猜想",
+      "capability": "analyze",
+      "domain": "research",
+      "expect_none": true
+    }
+  ]
+}

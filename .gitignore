@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Runtime workspace data (machine-specific absolute paths, personal outcomes)
+workspace/.caprouter/*
+!workspace/.caprouter/pipelines/
+workspace/backups/
+workspace/deliverables/
+deliverables/
+backups/
+
+# Dependencies / editors / OS junk
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local archives
+*.zip
+*.log
+*.bundle
+
+# Private evaluation transcripts (published cases only live in eval/*.json)
+eval/phase2/
