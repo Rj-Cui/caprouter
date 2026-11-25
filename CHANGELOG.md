@@ -45,6 +45,12 @@ core loop, plus the tests and documentation that would have caught them.
   record_outcome/list_gaps/install/uninstall). It previously exposed eight *different* tools, so a
   host following the skill got `unknown tool` for probe, probe-record, outcome, gaps, discover and
   card-draft. The plugin `.mcp.json`, `setup --host`, the DSH bundle text and the docs now agree.
+- **`python bin/caprouter.py` no longer breaks when the repository is already importable.** The
+  entry script only prepended the repository root when it was missing from `sys.path`; with the root
+  already present (`PYTHONPATH`, a `.pth` shim, or an installed copy) `sys.path[0]` stayed at
+  `bin/`, where `bin/caprouter.py` shadowed the package and raised
+  `ModuleNotFoundError: No module named 'caprouter.cli'; 'caprouter' is not a package`. It now always
+  moves the repository root to the front.
 - **Windows console encoding**: the CLI no longer forces UTF-8 on a `cp936`/`cp950`/`cp932` console,
   which turned Chinese paths into mojibake. UTF-8 is only forced when the current codec cannot
   represent CJK at all.

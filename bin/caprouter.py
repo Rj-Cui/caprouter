@@ -7,8 +7,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# ``sys.path[0]`` is this script's directory (``bin/``), which also contains a
+# ``caprouter.py``; that file would shadow the ``caprouter`` package whenever the
+# repository root is already importable (``PYTHONPATH``, a ``.pth`` file, or an
+# installed copy). Always put the repository root first instead of only when it
+# is missing.
+_root = str(ROOT)
+while _root in sys.path:
+    sys.path.remove(_root)
+sys.path.insert(0, _root)
 
 from caprouter.cli import main  # noqa: E402
 
