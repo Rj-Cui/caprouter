@@ -1,0 +1,38 @@
+{
+  "name": "caprouter-mcp",
+  "version": "0.7.2",
+  "private": true,
+  "description": "Connects the local CapRouter capability bus to DeepSeek Harness as an MCP server.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/Rj-Cui/caprouter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rj-Cui/caprouter.git"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "capabilities",
+    "skills"
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "exports": {
+    "./locale/*.json": "./locale/*.json",
+    "./icon": ".claude-plugin/icon.png"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs/DETAIL.md",
+    ".claude-plugin/icon.png",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -821,6 +821,13 @@ The portable bundle expects Python 3.11+ and `pip install caprouter` for that in
 (`CAPROUTER_PYTHON` overrides the interpreter, `CAPROUTER_WORKSPACE` the workspace). `tests/test_dsh_bundle.py`
 asserts that a portable bundle contains no path from the machine that produced it.
 
+The repository root is itself an installable DSH bundle (`package.json` → `dsh.bundle.patch`), so a host
+that supports bundle installs can also add it straight from the repository:
+
+```bash
+dsh plugin add github:Rj-Cui/caprouter
+```
+
 Search results carry a host judgement: `health.loadable_by_host` being `false` means the capability
 belongs to another host (for example Cherry Studio), cannot be loaded by DSH, and comes with a
 migration hint; `prefer_host` (on by default) ranks host-loadable candidates first and switches the

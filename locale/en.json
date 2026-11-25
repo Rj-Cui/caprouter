@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "CapRouter capability bus",
+    "description": "Connects the local CapRouter MCP server, adding capability_* tools that search, inspect, probe, install and verify local skills, plugins and scripts in the configured CapRouter workspace.",
+    "detail": "docs/DETAIL.md"
+  }
+}

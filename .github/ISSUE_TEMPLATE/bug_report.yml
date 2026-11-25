@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in the CLI, the MCP server or a host bundle does not work as documented.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Redact secrets and personal paths** before pasting output:
+        `caprouter doctor` prints workspace paths, and `audit.jsonl` may contain local paths.
+  - type: input
+    id: version
+    attributes:
+      label: CapRouter version
+      description: Output of `caprouter --version`.
+      placeholder: caprouter 0.7.2
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host and OS
+      placeholder: DSH 0.2.2 on Windows 11 / Claude Code on macOS 15 / CLI only
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The exact command, what you expected, and what you got instead.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`caprouter doctor --workspace <ws>` output (redacted)"
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I removed secrets and personal file paths from the report.
+          required: true
+        - label: I reproduced this on the latest release.
+          required: false

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "CapRouter 能力总线",
+    "description": "连接本机 CapRouter MCP 服务，新增 capability_* 工具，用于在指定工作区内搜索、查看、探测、安装与验证本机技能、插件和脚本。",
+    "detail": "docs/DETAIL.md"
+  }
+}

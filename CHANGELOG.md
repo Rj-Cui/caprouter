@@ -66,6 +66,13 @@ core loop, plus the tests and documentation that would have caught them.
 
 ### Added
 
+- **The repository root is a DSH bundle.** `package.json` declares `dsh.bundle.patch`, the patch runs
+  `python -m caprouter mcp` with no absolute path, and `locale/`, `docs/DETAIL.md` and the icon are
+  exported, so `dsh plugin add github:Rj-Cui/caprouter` installs it directly and a plugin catalog can
+  list it. `tests/test_dsh_package.py` keeps the manifest, version, locales and portability honest.
+- **Project hygiene for outside contributors**: issue forms (bug/feature), a pull request template,
+  a code of conduct, weekly Dependabot updates for actions and pip, and a CodeQL `security-and-quality`
+  workflow.
 - **`setup --host deepseek-harness --portable`**: emits a config-only DSH bundle with **no path from
   the machine that produced it** — the interpreter is resolved when the row mounts
   (`CAPROUTER_PYTHON`, else `py` on Windows and `python3` elsewhere), the server starts as

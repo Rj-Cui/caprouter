@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a capability, command or host integration.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CapRouter stays a local inventory and evidence layer: it does not become a model gateway,
+        a marketplace, or a replacement for the host's own tool search. Please frame requests in
+        that scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you are trying to solve
+      description: Describe the situation, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Native tool search, another registry, a script, ...
+    validations:
+      required: false
