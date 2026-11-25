@@ -19,10 +19,11 @@ from typing import Any, Iterable
 
 from .audit import append_audit
 from .claims import verify_claims
-from .probes import load_probe_rows, summarize_probe
+from .probe_log import load_probe_rows
+from .probe_summary import summarize_probe
 from .route import expand_query, route, tokenize
 from .state import is_enabled
-from .util import append_jsonl, now_iso, read_json, read_jsonl, sha256_text
+from .util import append_jsonl, now_iso, read_json, read_json_checked, read_jsonl, sha256_text
 
 CARD_SCHEMA = "caprouter.capability-card.v1"
 SEARCH_SCHEMA = "caprouter.capability-search.v1"
@@ -102,7 +103,9 @@ def load_overlay(workspace: Path | str) -> dict[str, Any]:
 
 
 def bus_config(workspace: Path | str) -> dict[str, Any]:
-    config = read_json(bus_dir(workspace) / "config.json", {})
+    config, status = read_json_checked(bus_dir(workspace) / "config.json")
+    if status != "ok":
+        return {}
     bus = config.get("bus") if isinstance(config, dict) else None
     return bus if isinstance(bus, dict) else {}
 
@@ -190,6 +193,7 @@ def merge_entry_overlay(entry: dict[str, Any], overlay_card: dict[str, Any] | No
 def build_card(entry: dict[str, Any], overlay: dict[str, Any] | None = None,
                stats: dict[str, Any] | None = None,
                probe: dict[str, Any] | None = None) -> dict[str, Any]:
+
     overlay = overlay or {}
     entry_type = str(entry.get("type") or "")
     description = str(overlay.get("description") or entry.get("description") or "")
@@ -237,6 +241,7 @@ def build_card(entry: dict[str, Any], overlay: dict[str, Any] | None = None,
 
 
 def get_capability(workspace: Path | str, capability_id: str) -> dict[str, Any] | None:
+
     overlay = load_overlay(workspace)
     stats = _stats_for(workspace)
     probe_rows = load_probe_rows(workspace)
@@ -303,6 +308,7 @@ def search_capabilities(
     include_unavailable: bool = False,
     record_gap: bool = False,
 ) -> dict[str, Any]:
+
     entries = load_entries(workspace)
     if not entries:
         return {
@@ -350,7 +356,7 @@ def search_capabilities(
         types=types,
         capabilities=capabilities,
         domains=domains,
-        min_score=0.0,
+        min_score=float(policy.get("min_score") or 0.0),
         exclude_path_contains=policy.get("exclude_path_contains") or (),
         exclude_id_prefixes=policy.get("exclude_id_prefixes") or (),
     )
@@ -499,6 +505,42 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+def _capability_content_roots(workspace: Path | str, capability_id: str) -> list[Path]:
+    """Directories a prompt-mode capability may read from.
+
+    The workspace and the capability's own registry path are trusted. A migrated
+    Card must never turn an arbitrary absolute path into a readable content root.
+    """
+    roots = [Path(workspace).resolve()]
+    for entry in load_entries(workspace):
+        if str(entry.get("id")) != str(capability_id):
+            continue
+        raw = str(entry.get("path") or "").strip()
+        if raw:
+            roots.append(Path(raw).expanduser().resolve())
+        break
+    return roots
+
+
+def _resolve_prompt_content(
+    workspace: Path | str,
+    capability_id: str,
+    content_path: Path,
+) -> tuple[Path, bool]:
+    """Resolve a prompt content path and report whether it stays inside a trusted root."""
+    try:
+        resolved = content_path.expanduser().resolve()
+    except OSError:
+        resolved = content_path
+    for root in _capability_content_roots(workspace, capability_id):
+        try:
+            resolved.relative_to(root)
+            return resolved, True
+        except ValueError:
+            continue
+    return resolved, False
+
+
 def _audit_invoke(workspace: Path | str, capability_id: str, decision: str, reason: str) -> None:
     """Record execution decisions without letting a bad audit path break invoke."""
     try:
@@ -577,6 +619,7 @@ def invoke_capability(
     cwd: str | None = None,
     timeout: int = 60,
     allow_execute: bool = False,
+    allow_external: bool = False,
 ) -> dict[str, Any]:
     if not is_enabled():
         reason = "CapRouter is disabled; run: caprouter state --enable"
@@ -594,7 +637,31 @@ def invoke_capability(
     invoke = card.get("invoke") or {}
     mode = str(invoke.get("mode") or "none")
     if mode == "prompt":
-        content_path = Path(str(invoke.get("content_path") or ""))
+        raw_content_path = str(invoke.get("content_path") or "").strip()
+        if not raw_content_path:
+            return {
+                "schema": INVOKE_SCHEMA,
+                "status": "missing",
+                "id": capability_id,
+                "reason": "prompt capability has no content_path",
+            }
+        content_path, path_allowed = _resolve_prompt_content(
+            workspace, capability_id, Path(raw_content_path)
+        )
+        if not path_allowed and not allow_external:
+            reason = (
+                "content_path is outside the capability directory and the workspace; "
+                "pass allow_external=true (CLI: --allow-external-content) to read it explicitly"
+            )
+            _audit_invoke(workspace, capability_id, "blocked", reason)
+            return {
+                "schema": INVOKE_SCHEMA,
+                "status": "blocked",
+                "id": capability_id,
+                "mode": "prompt",
+                "content_path": str(content_path),
+                "reason": reason,
+            }
         if not content_path.exists():
             return {
                 "schema": INVOKE_SCHEMA,

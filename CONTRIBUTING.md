@@ -23,7 +23,8 @@ caprouter --version
 - Every behavior change needs a unit test; keep the core dependency-free.
 - Do not weaken review thresholds to raise auto-apply rates.
 - Do not add automatic install or execution paths for remote content.
-- Keep `skills/caprouter/SKILL.md` at or below 2048 bytes (`doctor` enforces this).
+- Keep `skills/caprouter/SKILL.md` at or below 2048 bytes (`doctor` warns when it grows past that,
+  and the skill must only reference tools that exist in the `core` MCP profile).
 - Do not commit `workspace/.caprouter/` runtime data: it contains machine-specific paths and
   personal outcomes.
 - Prefer explicit `abstain`, `unverifiable` and warnings over guessing.

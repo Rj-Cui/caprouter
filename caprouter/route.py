@@ -261,7 +261,6 @@ def route(
             boosted.append((score, entry))
 
     boosted.sort(key=lambda item: (-item[0], str(item[1].get("id"))))
-    query_set = set(query_tokens)
     results: list[dict[str, Any]] = []
     for score, entry in boosted[: max(1, top_k)]:
         document_tokens = set(tokenize(_text_of(entry)))

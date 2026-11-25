@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .capabilities import load_entries, load_overlay, overlay_path
+from .capabilities import default_invoke, load_entries, load_overlay, overlay_path
 from .cards import DRAFT_SCHEMA, draft_path, drafts_dir, entry_hash, generate_draft, write_draft
 from .evidence import collect_evidence
 from .paths import config_path
@@ -280,13 +280,37 @@ def _match_identity(
     return None, "ambiguous" if candidates else "unmatched"
 
 
+def _rewrite_invoke_for_local(card: dict[str, Any], entry: dict[str, Any] | None) -> dict[str, Any]:
+    """Never keep a bundle-supplied content_path; rebind to the local capability.
+
+    A migration bundle is untrusted input: its Card may point at any file on this
+    machine. Matched cards get the local default invoke; unmatched/unsafe cards
+    lose the path and must be regenerated during review.
+    """
+    invoke = dict(card.get("invoke") or {})
+    mode = str(invoke.get("mode") or "none")
+    if entry is not None and mode == "prompt":
+        local = default_invoke(entry)
+        local["allow"] = False
+        return local
+    return {"mode": mode if mode in {"prompt", "command"} else "none", "allow": False}
+
+
 def _card_import_unsafe(card: dict[str, Any]) -> bool:
     """A bundle is untrusted input; command execution is never auto-applied."""
     invoke = card.get("invoke") if isinstance(card.get("invoke"), dict) else {}
     return str(invoke.get("mode") or "") == "command" or bool(invoke.get("allow"))
 
 
-def _write_migrated_draft(workspace: Path, capability_id: str, type_name: str, card: dict[str, Any], identity: dict[str, Any], status: str) -> Path:
+def _write_migrated_draft(
+    workspace: Path,
+    capability_id: str,
+    type_name: str,
+    card: dict[str, Any],
+    identity: dict[str, Any],
+    status: str,
+    entry: dict[str, Any] | None = None,
+) -> Path:
     drafts = drafts_dir(workspace) / "migrated"
     digest = sha256_text(capability_id).split(":", 1)[-1][:8]
     target = drafts / f"{safe_name(str(identity.get('name') or capability_id).replace(':', '-'))}-{digest}.json"
@@ -308,7 +332,7 @@ def _write_migrated_draft(workspace: Path, capability_id: str, type_name: str, c
         "input_schema": card.get("input_schema"),
         "output_schema": card.get("output_schema"),
         "permissions": card.get("permissions") or {},
-        "invoke": card.get("invoke") or {"mode": "none", "allow": False},
+        "invoke": _rewrite_invoke_for_local(card, entry),
         "provenance": {
             **(card.get("provenance") if isinstance(card.get("provenance"), dict) else {}),
             "source": "migration",
@@ -323,6 +347,7 @@ def _write_migrated_draft(workspace: Path, capability_id: str, type_name: str, c
                 "migrated from another machine",
                 "path is not remapped; review and regenerate before apply" if status == "migrated_unmatched" else "",
                 "command/allow cards are not auto-applied from a bundle; review manually" if status == "migrated_unsafe" else "",
+                "bundle content_path was dropped; regenerate local content before apply" if str((card.get("invoke") or {}).get("mode") or "") == "prompt" else "",
             ],
         },
     }
@@ -435,6 +460,7 @@ def import_bundle(
                     kept += 1
                     continue
                 migrated = dict(card)
+                migrated["invoke"] = _rewrite_invoke_for_local(card, entry)
                 migrated["provenance"] = {
                     **(card.get("provenance") if isinstance(card.get("provenance"), dict) else {}),
                     "source": "migration",
@@ -453,7 +479,17 @@ def import_bundle(
                 )
                 if not dry_run:
                     drafts_written.append(
-                        str(_write_migrated_draft(workspace, old_id, str(identity.get("type") or "unknown"), card, identity, status))
+                        str(
+                            _write_migrated_draft(
+                                workspace,
+                                old_id,
+                                str(identity.get("type") or "unknown"),
+                                card,
+                                identity,
+                                status,
+                                entry,
+                            )
+                        )
                     )
 
         if not dry_run and applied:

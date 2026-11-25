@@ -544,20 +544,29 @@ def _rollback_auto_install(
     target = Path(str(installed.get("installed_path") or ""))
     trash = Path(str(installed.get("trash_path"))) if installed.get("trash_path") else None
     draft_path = Path(str(installed.get("draft_path") or ""))
+    issues: list[str] = []
     removed = False
     restored = False
+    draft_removed = False
     if target.is_dir():
-        shutil.rmtree(target, ignore_errors=True)
-        removed = True
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            issues.append(f"failed to remove the new installation: {exc}")
+        removed = not target.exists()
     if trash is not None and trash.is_dir():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(trash), str(target))
-        restored = True
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(trash), str(target))
+            restored = True
+        except OSError as exc:
+            issues.append(f"failed to restore the previous installation: {exc}")
     if draft_path.is_file():
         try:
             draft_path.unlink()
-        except OSError:
-            pass
+            draft_removed = True
+        except OSError as exc:
+            issues.append(f"failed to remove the generated draft: {exc}")
     config = read_json(workspace / ".caprouter" / "config.json", {})
     if isinstance(config, dict):
         _refresh_registry(workspace, config)
@@ -565,13 +574,16 @@ def _rollback_auto_install(
         try:
             draft = generate_draft(workspace, capability_id=str(candidate.get("id")))
             write_draft(workspace, draft, draft_path)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            issues.append(f"failed to regenerate the previous draft: {exc}")
     return {
         "removed": removed,
         "restored_previous": restored,
+        "draft_removed": draft_removed,
         "trash_path": str(trash) if trash is not None else None,
         "draft_path": str(draft_path),
+        "issues": issues,
+        "ok": not issues,
     }
 
 
@@ -739,7 +751,7 @@ def _unique_dir(parent: Path, stem: str) -> Path:
 
 def _read_text(path: Path, limit: int = 12_000) -> str:
     try:
-        return path.read_text(encoding="utf-8", errors="replace")[:limit]
+        return path.read_text(encoding="utf-8-sig", errors="replace")[:limit]
     except OSError:
         return ""
 
@@ -937,7 +949,7 @@ def refine_candidate(
     skill_file = Path(str(candidate.get("skill_dir") or candidate_dir / "skill")) / "SKILL.md"
     if not skill_file.is_file():
         return {"schema": REFINE_SCHEMA, "status": "invalid_candidate", "message": "SKILL.md is missing"}
-    skill_text = skill_file.read_text(encoding="utf-8", errors="replace")
+    skill_text = skill_file.read_text(encoding="utf-8-sig", errors="replace")
     match = re.search(r"(?m)^version:\s*(.+)$", skill_text)
     version = match.group(1).strip() if match else str(candidate.get("version") or "0.1.0")
     card_path = Path(str(candidate.get("card_draft_path") or candidate_dir / "card_draft.json"))
@@ -1099,7 +1111,7 @@ def improve_synthesis(
     skill_file = target / "SKILL.md"
     if not skill_file.is_file():
         return {"schema": SYNTHESIS_SCHEMA, "status": "invalid_capability", "message": "SKILL.md is missing"}
-    text = skill_file.read_text(encoding="utf-8", errors="replace")
+    text = skill_file.read_text(encoding="utf-8-sig", errors="replace")
     match = re.search(r"(?m)^version:\s*(.+)$", text)
     current_version = match.group(1).strip() if match else "0.1.0"
     new_version = _bump_version(current_version)

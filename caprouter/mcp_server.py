@@ -91,7 +91,12 @@ TOOLS: list[dict[str, Any]] = [
                 "input": {"type": "string", "description": "Prompt or input passed to the capability."},
                 "cwd": {"type": "string"},
                 "timeout": {"type": "integer", "minimum": 1, "maximum": 600, "default": 60},
-                "allow_execute": {"type": "boolean", "default": False}
+                "allow_execute": {"type": "boolean", "default": False},
+                "allow_external_content": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Explicitly allow a prompt-mode content_path outside the capability directory and workspace. Keep false unless the user approved reading that file.",
+                }
             },
             "required": ["id"]
         }
@@ -335,22 +340,29 @@ TOOLS: list[dict[str, Any]] = [
 
 
 CORE_TOOL_NAMES = (
+    # The loop the bundled skills/caprouter/SKILL.md actually instructs:
+    # search -> get -> invoke -> probe -> probe_record -> verify -> outcome,
+    # plus the two lifecycle calls a host may need.
     "capability_search",
     "capability_get",
     "capability_invoke",
+    "capability_probe",
+    "capability_probe_record",
     "capability_verify",
+    "capability_record_outcome",
+    "capability_list_gaps",
     "capability_install",
     "capability_uninstall",
-    "capability_health",
-    "capability_duplicates",
 )
 
 
 def tools_for(profile: str) -> list[dict[str, Any]]:
     """Return the tool list for a profile.
 
-    ``core`` (default for new host installs) keeps the model-facing surface at
-    eight tools; ``full`` exposes all twenty for debugging and power users.
+    ``core`` (the default for host installs) exposes the ten tools the bundled
+    skill's workflow uses, so following that skill never calls a tool the host
+    was not given. ``full`` exposes all twenty for debugging and power users.
+    Any other value is treated as ``core``.
     """
     if str(profile).strip().lower() == "full":
         return TOOLS
@@ -365,7 +377,15 @@ def resolve_workspace(value: str | None) -> Path:
     if env:
         return Path(env).expanduser().resolve()
     found = find_workspace_or_plugin(Path.cwd())
-    return found if found else Path.cwd().resolve()
+    if found is not None:
+        return found
+    # A host plugin (DSH / Claude Code) starts the server without a workspace
+    # argument. Fall back to the location the one-click installer creates, so a
+    # freshly installed plugin works without editing its config.
+    default = Path.home() / "CapRouter" / "workspace"
+    if (default / ".caprouter" / "config.json").is_file():
+        return default.resolve()
+    return Path.cwd().resolve()
 
 
 def _as_list(value: Any) -> list[Any] | None:
@@ -448,6 +468,7 @@ def _dispatch(
             cwd=args.get("cwd"),
             timeout=int(args.get("timeout") or 60),
             allow_execute=bool(args.get("allow_execute")),
+            allow_external=bool(args.get("allow_external_content")),
         )
     if name == "capability_verify":
         return verify_artifact(
@@ -679,6 +700,16 @@ def _handle(
         name = str(params.get("name") or "")
         arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
         try:
+            spec = next((tool for tool in TOOLS if tool.get("name") == name), None)
+            if spec is None:
+                raise ValueError(f"unknown tool: {name}")
+            properties = (spec.get("inputSchema") or {}).get("properties") or {}
+            unknown = sorted(set(arguments) - set(properties))
+            if unknown:
+                raise ValueError(
+                    f"unknown argument(s) for {name}: {', '.join(unknown)}; "
+                    f"allowed: {', '.join(sorted(properties))}"
+                )
             payload = _dispatch(workspace, name, arguments, host=host)
         except (ValueError, KeyError, TypeError) as exc:
             return _result(request_id, {

@@ -328,13 +328,18 @@ class McpHostProfileTests(unittest.TestCase):
         out, _err = proc.communicate(payload, timeout=60)
         return [json.loads(line) for line in out.splitlines() if line.strip()]
 
-    def test_core_profile_exposes_eight_tools(self) -> None:
+    def test_core_profile_exposes_ten_tools(self) -> None:
         responses = self._run(["--tools", "core"])
         listing = next(item for item in responses if item.get("id") == 2)
         names = sorted(tool["name"] for tool in listing["result"]["tools"])
-        self.assertEqual(len(names), 8)
+        # 0.7.2: the core profile now matches the loop the bundled SKILL.md
+        # documents (probe / probe_record / record_outcome / list_gaps).
+        self.assertEqual(len(names), 10)
         self.assertIn("capability_search", names)
-        self.assertNotIn("capability_probe", names)
+        self.assertIn("capability_probe", names)
+        self.assertIn("capability_record_outcome", names)
+        self.assertNotIn("capability_health", names)
+        self.assertNotIn("capability_discover", names)
 
     def test_full_profile_exposes_twenty_tools(self) -> None:
         responses = self._run(["--tools", "full"])

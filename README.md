@@ -116,13 +116,13 @@ for the cases where you need to know **what is installed, whether it still works
   current host can load; `link_host` / `unlink_host` keep install and uninstall in sync with the host
   skill directory (hand-edited copies are protected by hash).
 - **DeepSeek Harness**: `setup --host deepseek-harness` generates a one-click-addable MCP plugin
-  directory with the 8 core `mcp__caprouter__*` tools in DSH; `--link-skills` syncs managed skills into
+  directory with the 10 core `mcp__caprouter__*` tools in DSH; `--link-skills` syncs managed skills into
   `~/.dsh/skills`.
 - **Windows one-click install**: `install.ps1` + `install.bat`, no pip and no network, creating a
   workspace automatically.
 - **Release packaging**: `release.ps1` builds `dist/caprouter-<version>.zip` plus SHA256 and release
   notes.
-- Audit events are written per workspace; the 350 tests are reproducible from any path.
+- Audit events are written per workspace; the test suite is reproducible from any path.
 
 ## What's new in 0.6.3: online quarantine discovery, pipelines, install lifecycle, candidate refinement
 
@@ -153,7 +153,9 @@ for the cases where you need to know **what is installed, whether it still works
   is searched read-only, downloads only enter quarantine, nothing is installed or executed
   automatically.
 - **Pipeline**: `pipeline plan/run/verify/outcome`; command steps run deterministically, prompt steps
-  stop at `awaiting_host`; the first built-in pipeline is `fiction-deslop`.
+  stop at `awaiting_host`. Pipeline definitions are user-authored JSON in
+  `<workspace>/.caprouter/pipelines/*.json` — no pipeline ships built in; start from
+  `examples/pipeline.example.json`.
 - **Install lifecycle**: `uninstall` / `rollback` preview by default and only change files with
   `--yes`; targets move into `installed/.trash/` and are recorded.
 - **Candidate refinement**: 0.6.2's `synthesize` could already create candidates, but the content came
@@ -416,7 +418,8 @@ The first `init` writes:
 <workspace>/.caprouter/config.json
 <workspace>/.caprouter/registry.json
 <workspace>/.caprouter/plans/
-<workspace>/.caprouter/runs/
+<workspace>/.caprouter/scratch/
+<workspace>/deliverables/            (created by init; --delivery overrides it)
 ```
 
 `scan-projects` / `bootstrap` additionally write:
@@ -425,6 +428,9 @@ The first `init` writes:
 <workspace>/.caprouter/projects_scan.json      full scan result
 <workspace>/.caprouter/drafts/projects/        batch Card drafts (not applied)
 ```
+
+Everything else under `.caprouter/` is created on first use (runs, reviews, probes, outcomes, installed,
+pipeline-runs, migrations, synthesized, quarantine).
 
 ## Capability bus
 
@@ -797,9 +803,23 @@ python bin/caprouter.py setup --host deepseek-harness --link-skills --workspace 
 ```
 
 Then in DSH: **Plugins → Add local plugin directory → pick `caprouter-dsh-bundle`**. A new session then
-exposes the **8 core** `mcp__caprouter__*` tools (`capability_search`, `capability_install`,
-`capability_verify`, `capability_get`, `capability_invoke`, `capability_uninstall`, `capability_health`,
-`capability_duplicates`). To get all 20, change `--tools core` to `--tools full` in the bundle.
+exposes the **10 core** `mcp__caprouter__*` tools (`capability_search`, `capability_get`,
+`capability_invoke`, `capability_probe`, `capability_probe_record`, `capability_verify`,
+`capability_record_outcome`, `capability_list_gaps`, `capability_install`, `capability_uninstall`).
+To get all 20, change `--tools core` to `--tools full` in the bundle.
+
+The command above embeds this machine's Python path, the repository path and the workspace path, so the
+result only works here. To produce a bundle you can hand to another machine (or ship to a plugin
+catalog), generate the portable form instead:
+
+```bash
+# no absolute path from this machine: `python -m caprouter`, workspace resolved at startup
+python bin/caprouter.py setup --host deepseek-harness --write --portable --workspace ./workspace
+```
+
+The portable bundle expects Python 3.11+ and `pip install caprouter` for that interpreter
+(`CAPROUTER_PYTHON` overrides the interpreter, `CAPROUTER_WORKSPACE` the workspace). `tests/test_dsh_bundle.py`
+asserts that a portable bundle contains no path from the machine that produced it.
 
 Search results carry a host judgement: `health.loadable_by_host` being `false` means the capability
 belongs to another host (for example Cherry Studio), cannot be loaded by DSH, and comes with a
@@ -842,13 +862,19 @@ tests/                       unit tests that do not depend on external models
 Load the repository root as the plugin directory (use the current Claude Code `/plugin` help for the
 exact install command).
 
-## Status (0.7.0, 2026-11-24)
+## Status (0.7.2, 2026-11-25)
 
-- 350 unit tests, zero runtime dependencies.
+- **430 unit tests** in `tests/` (`python -m unittest discover -s tests`), zero runtime dependencies.
+  Every test runs against a temporary workspace and an isolated home; none calls a model or the network.
+- Prompt content paths are bound to the capability directory and the workspace; an explicit
+  `--allow-external-content` is required for anything else.
 - Host-aware search: capabilities owned by another host are flagged, not presented as usable.
 - DeepSeek Harness adapter: `setup --host deepseek-harness` plus install/uninstall host linking.
 - Windows one-click installer (`install.ps1` / `install.bat`) and a `release.ps1` packager.
-- MCP server exposes 8 core tools for hosts (`--tools core`) or all 20 (`--tools full`).
+- MCP server exposes **10 core tools** for hosts (`--tools core`, the default `setup --host` writes)
+  or all 20 (`--tools full`). The bundled `skills/caprouter/SKILL.md` only calls tools that are in the
+  core profile; if you switch a host to `full`, the extra tools become available but nothing in the
+  skill depends on them.
 
 ### Verification log (0.6.3, 2026-11-23)
 
@@ -864,8 +890,9 @@ exact install command).
   `docs/security-hardening-2026-11-23.md`;
 - Online discovery: `discover → fetch → quarantine → vendor` verified end-to-end on
   `anthropics/skills/pdf` (12 files, 68,603 bytes, Apache-2.0, **not installed**);
-- First real pipeline: `fiction-deslop` ran plan→verify→outcome end-to-end on a real story with
-  verify=pass and `human_edit_minutes=0`;
+- `fiction-deslop` was cited here as a built-in pipeline; **it never shipped**. Pipeline definitions
+  are user-authored JSON in `<workspace>/.caprouter/pipelines/*.json` (`id`, `goal`, `steps[]`), and
+  `pipeline plan` selects the capability for each step. See `examples/pipeline.example.json`.
 - Install lifecycle: install → uninstall → rollback verified in a temporary workspace;
 - Hosts: the Claude Code plugin static validation passes; Cherry Studio MCP has been exercised with
   `capability_search` (select → `skill:demo-office-doc`, confidence 0.7195); a cross-host behavior
@@ -1015,14 +1042,15 @@ exact install command).
 
 ```bash
 python -m unittest discover -s tests -v
-node mods/caprouter-mod/tests/register.test.mjs
 python bin/caprouter.py doctor --workspace ./workspace
-npx -y @anthropic-ai/claude-code@latest plugin validate .
+python bin/caprouter.py eval --workspace ./workspace
 ```
 
-The current 350 unit tests do not depend on external models and are reproducible after copying the
-repository to any path (1 test is skipped per platform); they cover the install entrypoints, the DSH
-adapter, host awareness, install/uninstall linking and release artifact validation.
+The suite in `tests/` (430 cases) is stdlib-only, needs no model or network, and is reproducible from any path:
+every test creates its own temporary workspace and redirects `HOME`/`USERPROFILE`/`APPDATA`, so it
+never touches the real profile. It covers pipeline acceptance/trust boundaries, project-nested skill
+indexing, UTF-8 BOM tolerance, the guard write roots and executable trust, host link/unlink safety,
+the MCP tool-surface contract and the CLI exit-code/`--workspace` contract.
 
 Next priorities and kill gates: `docs/roadmap.md`; positioning, competitors and target users:
 `docs/positioning-2026-11-23.md`.

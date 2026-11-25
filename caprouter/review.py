@@ -29,7 +29,6 @@ from .workspace import DEFAULT_REVIEW_CONFIG
 REVIEW_SCHEMA = "caprouter.capability-review.v1"
 REVIEW_BATCH_SCHEMA = "caprouter.capability-review-batch.v1"
 REVIEWS_DIR = "reviews"
-RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

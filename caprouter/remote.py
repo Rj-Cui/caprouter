@@ -20,8 +20,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .archive import _safe_extract, _zip_root
 from .audit import append_audit
 from .cards import generate_draft
+from .licenses import _license_info
 from .state import is_enabled
 from .util import append_jsonl, hash_tree, now_iso, read_json, safe_name, write_json_atomic
 
@@ -42,7 +44,7 @@ FETCH_URL_HOSTS = {
 }
 FETCH_URL_SCHEMA = "caprouter.fetch-url.v1"
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
-USER_AGENT = "CapRouter/0.7.0"
+USER_AGENT = "CapRouter/0.7.1"
 MAX_FILES = 500
 MAX_BYTES = 20 * 1024 * 1024
 MAX_RESPONSE_BYTES = 25 * 1024 * 1024
@@ -256,40 +258,6 @@ def discover_skills(
     return result
 
 
-def _license_info(files: list[tuple[Path, str]]) -> dict[str, Any]:
-    """Read a LICENSE/COPYING file and identify common licenses.
-
-    This is a filename/text heuristic, not legal advice. Unknown text is
-    reported as ``unknown`` instead of guessing.
-    """
-    candidate = None
-    for relative, contents in files:
-        name = relative.name.upper()
-        if name.startswith(("LICENSE", "COPYING", "NOTICE")):
-            candidate = (relative, contents)
-            break
-    if candidate is None:
-        return {"name": "unknown", "file": None, "detected": False}
-    relative, contents = candidate
-    text = contents[:12000].lower()
-    patterns = [
-        ("AGPL-3.0", ("gnu affero general public license",)),
-        ("GPL-3.0", ("gnu general public license", "version 3")),
-        ("GPL-2.0", ("gnu general public license", "version 2")),
-        ("Apache-2.0", ("apache license", "version 2.0")),
-        ("MPL-2.0", ("mozilla public license",)),
-        ("CC-BY-4.0", ("creative commons attribution 4.0",)),
-        ("BSD-3-Clause", ("bsd 3-clause", "neither the name")),
-        ("BSD-2-Clause", ("bsd 2-clause",)),
-        ("Unlicense", ("free and unencumbered software released into the public domain",)),
-        ("MIT", ("mit license", "permission is hereby granted, free of charge")),
-    ]
-    for label, needles in patterns:
-        if all(needle in text for needle in needles):
-            return {"name": label, "file": relative.as_posix(), "detected": True}
-    return {"name": "unknown", "file": relative.as_posix(), "detected": False}
-
-
 def _validate_files(files: Any) -> list[tuple[Path, str]]:
     if not isinstance(files, list) or not files:
         raise ValueError("remote download has no files")
@@ -406,8 +374,6 @@ def fetch_url(
     try:
         zip_path = staging / "download.zip"
         zip_path.write_bytes(raw)
-        from .install import _safe_extract, _zip_root
-
         extracted = staging / "extracted"
         extracted.mkdir()
         _safe_extract(zip_path, extracted)
@@ -607,7 +573,7 @@ def _extract_constraints(body: str, limit: int = 12) -> list[str]:
 
 def _deconstruction_report(draft: dict[str, Any], dest: Path, provenance: dict[str, Any]) -> str:
     skill_md = dest / "SKILL.md"
-    body = skill_md.read_text(encoding="utf-8", errors="replace") if skill_md.is_file() else ""
+    body = skill_md.read_text(encoding="utf-8-sig", errors="replace") if skill_md.is_file() else ""
     files = sorted(
         path.relative_to(dest).as_posix()
         for path in dest.rglob("*")

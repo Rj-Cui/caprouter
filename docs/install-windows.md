@@ -3,7 +3,7 @@
 CapRouter is a local capability bus: **no internet needed, no pip needed, no registry writes**.
 The whole installation is only four steps: **download the ZIP → extract → double-click `install.bat` → see "Installation complete"**.
 
-This document follows the file names in the release package, for example `caprouter-0.7.0.zip` (`<version>` changes with the version).
+This document follows the file names in the release package, for example `caprouter-0.7.1.zip` (`<version>` changes with the version).
 
 ## Prerequisites
 
@@ -66,11 +66,11 @@ If it prints a version number, the installation succeeded.
 Open PowerShell in the directory containing the ZIP and run:
 
 ```powershell
-Get-FileHash .\caprouter-0.7.0.zip -Algorithm SHA256
+Get-FileHash .\caprouter-0.7.1.zip -Algorithm SHA256
 ```
 
 Compare the output hash with the SHA256 in the release page/release notes (`RELEASE-NOTES.md`); if they match, you can install with confidence.
-The release package also includes a `caprouter-0.7.0.zip.sha256` file whose content format is
+The release package also includes a `caprouter-0.7.1.zip.sha256` file whose content format is
 "SHA256 lowercase hex + two spaces + file name".
 
 ## FAQ

@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""CapRouter command line interface.
+
+Exit codes:
+    0   success (a preview or an "already up to date" no-op counts as success)
+    1   the operation failed, or the requested state is invalid
+    2   usage error, or the operation needs an explicit flag to proceed
+        (``--approve``, ``--yes``); nothing was changed
+    3   CapRouter is disabled globally (``caprouter state --disable``)
+"""
+
 import argparse
 import json
 import shutil
@@ -68,7 +78,7 @@ from .remote import (
     vendor_skill,
 )
 from .review import review_drafts
-from .paths import config_path, find_workspace, registry_path
+from .paths import config_path, registry_path
 from .plan import load_plan, validate_plan
 from .route import route
 from .scan import (
@@ -92,48 +102,25 @@ from .synthesize import (
 from .util import hash_tree, now_iso, read_json, write_json_atomic
 from .workspace import DEFAULT_SCAN_CONFIG, create_workspace, refresh_registry
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+# Single implementation lives in cli_common; these aliases keep the call sites
+# in this module unchanged while removing the duplicate definitions.
+from .cli_common import (  # noqa: E402  (imports below the stdlib/lib block on purpose)
+    EXIT_DISABLED,
+    EXIT_FAILED,
+    EXIT_NEEDS_FLAG,
+    EXIT_OK,
+    configure_console,
+)
+from .cli_common import ask as _ask
+from .cli_common import capability_workspace as _capability_workspace
+from .cli_common import fail as _fail
+from .cli_common import load_config as _load_config
+from .cli_common import print_json as _print_json
+from .cli_common import registry_entries as _registry_entries
+from .cli_common import workspace_from_args as _workspace_from_args
 
-
-def _workspace_from_args(args: argparse.Namespace) -> Path:
-    if getattr(args, "workspace", None):
-        workspace = Path(args.workspace).expanduser().resolve()
-    else:
-        found = find_workspace(Path.cwd())
-        workspace = found if found else Path.cwd().resolve()
-    set_audit_workspace(workspace)
-    return workspace
-
-
-def _print_json(data: Any) -> None:
-    print(json.dumps(data, ensure_ascii=False, indent=2))
-
-
-def _ask(prompt: str, default: str, *, assume_yes: bool) -> str:
-    if assume_yes or not sys.stdin.isatty():
-        return default
-    try:
-        value = input(f"{prompt} [{default}]: ").strip()
-    except EOFError:
-        # Non-interactive consumers (CI, MCP hosts, piped stdin) may still report a TTY.
-        return default
-    return value or default
-
-
-def _load_config(workspace: Path) -> dict[str, Any]:
-    data = read_json(config_path(workspace))
-    if not isinstance(data, dict):
-        raise SystemExit(f"CapRouter is not initialized in {workspace}; run: caprouter init --workspace \"{workspace}\"")
-    return data
-
-
-def _registry_entries(workspace: Path) -> list[dict[str, Any]]:
-    data = read_json(registry_path(workspace), {})
-    entries = data.get("entries") if isinstance(data, dict) else None
-    return [item for item in (entries or []) if isinstance(item, dict)]
+configure_console(sys.stdout)
+configure_console(sys.stderr)
 
 
 def _write_registry(
@@ -374,8 +361,7 @@ def cmd_migrate_export(args: argparse.Namespace) -> int:
     try:
         report = export_bundle(workspace, args.out)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(report)
     else:
@@ -413,8 +399,7 @@ def cmd_migrate_remap(args: argparse.Namespace) -> int:
             force=args.force,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -435,8 +420,7 @@ def cmd_migrate_import(args: argparse.Namespace) -> int:
             force=bool(args.force),
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(report)
     else:
@@ -672,9 +656,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _print_json({"ok": False, "problems": [f"not initialized: {config_path(workspace)}"]})
         return 1
 
-    delivery = Path(str(config.get("delivery") or ""))
-    if not delivery.is_dir():
-        problems.append(f"delivery directory missing: {delivery}")
+    delivery_text = str(config.get("delivery") or "").strip()
+    if not delivery_text:
+        warnings.append("config has no delivery directory; run: caprouter init --workspace <ws>")
+        delivery = workspace / "deliverables"
+    else:
+        delivery = Path(delivery_text)
+        if not delivery.is_dir():
+            problems.append(f"delivery directory missing: {delivery}")
     registry_file = registry_path(workspace)
     registry = read_json(registry_file, {})
     if not isinstance(registry, dict):
@@ -862,6 +851,9 @@ def cmd_trash(args: argparse.Namespace) -> int:
         }
     if args.json:
         _print_json(result)
+        if args.clean and result.get("status") == "preview":
+            print("preview only; pass --yes to delete", file=sys.stderr)
+            return EXIT_NEEDS_FLAG
         return 0
     if args.clean:
         print(
@@ -872,7 +864,7 @@ def cmd_trash(args: argparse.Namespace) -> int:
             print(f"  {item['name']}  age={item['age_days']}d")
         if result["status"] == "preview":
             print("preview only; pass --yes to delete", file=sys.stderr)
-            return 2
+            return EXIT_NEEDS_FLAG
         return 0
     print(f"trash: {result['count']}")
     for item in result["items"]:
@@ -891,10 +883,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
             link_skills=getattr(args, "link_skills", False),
             skills_root=getattr(args, "skills_root", None) or getattr(args, "host_root", None),
             force=getattr(args, "force", False),
+            portable=getattr(args, "portable", False),
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
         return 0
@@ -954,8 +946,7 @@ def cmd_drift(args: argparse.Namespace) -> int:
     try:
         result = check_drift(workspace, lock=args.lock, live=args.live)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -980,8 +971,7 @@ def cmd_duplicates(args: argparse.Namespace) -> int:
         try:
             result = prefer_duplicate(workspace, args.prefer)
         except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
+            return _fail(exc)
         _print_json(result)
         return 0
     result = find_duplicates(workspace)
@@ -1017,9 +1007,10 @@ def cmd_health(args: argparse.Namespace) -> int:
         return 0
     print(f"capabilities: {result['count']}  counts={result['counts']}")
     for item in result["capabilities"]:
+        review = f" review={item['review_status']}" if item.get("review_status") else ""
         print(
             f"  {item['state']:9} {str(item['id']):38} "
-            f"probe={item.get('probe_status') or '-'} success={item.get('success_rate')}"
+            f"probe={item.get('probe_status') or '-'} success={item.get('success_rate')}{review}"
         )
     return 0
 
@@ -1050,6 +1041,8 @@ def cmd_agents(args: argparse.Namespace) -> int:
     if args.json:
         _print_json(data["agents"])
     else:
+        if not data["agents"]:
+            print("no CLI agents detected (looked for claude, codebuddy, qwen, kimi, ... on PATH)")
         for agent in data["agents"]:
             mark = "OK" if agent["available"] else "MISS"
             print(f"{mark:4} {agent['name']:12} {agent['path']}")
@@ -1058,10 +1051,14 @@ def cmd_agents(args: argparse.Namespace) -> int:
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
+    workspace = _workspace_from_args(args)
     events = tail_audit(args.tail)
     if args.json:
         _print_json(events)
     else:
+        print(f"audit log: {audit_path()}")
+        if not events:
+            print("  (no events yet; hook events appear here once the host runs a tool)")
         for event in events:
             print(
                 f"{event.get('ts')}  {event.get('event')}  "
@@ -1076,6 +1073,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
     if args.json:
         _print_json(data["recent_runs"])
     else:
+        if not data["recent_runs"]:
+            print("no runs yet (run a plan with: caprouter run --plan <file>)")
         for run in data["recent_runs"]:
             print(f"{run['run_dir']}  task={run.get('task_id')}  nodes={run.get('nodes')}")
     return 0
@@ -1087,6 +1086,8 @@ def cmd_backups(args: argparse.Namespace) -> int:
     if args.json:
         _print_json(items)
     else:
+        if not items:
+            print("no backups yet (create one with: caprouter backup)")
         for item in items:
             print(f"{item['created_at']}  {item['backup_dir']}")
     return 0
@@ -1105,8 +1106,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
     try:
         result = restore_backup(workspace, args.source, force=args.force)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0
 
@@ -1214,7 +1214,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "CapRouter is disabled; enable it from the tray or run: caprouter state --enable",
             file=sys.stderr,
         )
-        return 3
+        return EXIT_DISABLED
     entries = _registry_entries(workspace)
     if not entries:
         raise SystemExit(f"registry is empty or missing in {workspace}; run: caprouter scan")
@@ -1269,7 +1269,7 @@ def cmd_host(args: argparse.Namespace) -> int:
             "CapRouter is disabled; enable it from the tray or run: caprouter state --enable",
             file=sys.stderr,
         )
-        return 3
+        return EXIT_DISABLED
     config = _load_config(workspace)
     prompt = args.prompt
     if args.stdin:
@@ -1328,7 +1328,9 @@ def _acceptance_from_args(args: argparse.Namespace) -> list[Any] | None:
 
 
 def _capability_workspace(args: argparse.Namespace) -> Path:
-    return resolve_workspace(getattr(args, "workspace", None))
+    workspace = resolve_workspace(getattr(args, "workspace", None))
+    set_audit_workspace(workspace)
+    return workspace
 
 
 def cmd_capability_search(args: argparse.Namespace) -> int:
@@ -1386,6 +1388,7 @@ def cmd_capability_invoke(args: argparse.Namespace) -> int:
         cwd=args.cwd,
         timeout=args.timeout,
         allow_execute=args.allow_execute,
+        allow_external=getattr(args, "allow_external_content", False),
     )
     _print_json(result)
     return 0 if result.get("status") in {"ok", "prompt"} else 1
@@ -1448,8 +1451,7 @@ def cmd_pipeline_plan(args: argparse.Namespace) -> int:
     try:
         result = plan_pipeline(workspace, args.id, task=args.task or "", input_path=args.input)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0 if result.get("status") == "ready" else 2
 
@@ -1459,8 +1461,7 @@ def cmd_deps_plan(args: argparse.Namespace) -> int:
     try:
         result = plan_dependencies(workspace, args.id)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0
 
@@ -1470,8 +1471,7 @@ def cmd_deps_check(args: argparse.Namespace) -> int:
     try:
         result = check_dependencies(workspace, args.id)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0
 
@@ -1516,7 +1516,7 @@ def cmd_pipeline_outcome(args: argparse.Namespace) -> int:
         notes=args.notes or "",
     )
     _print_json(result)
-    return 0
+    return EXIT_OK if result.get("status") == "recorded" else EXIT_FAILED
 
 
 def cmd_capability_gap(args: argparse.Namespace) -> int:
@@ -1728,20 +1728,23 @@ def cmd_capability_draft(args: argparse.Namespace) -> int:
             name=args.name,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    written = None
-    if args.out or args.apply:
-        written = write_draft(workspace, draft, args.out)
+        return _fail(exc)
+    # Always persist the draft: `review` reads .caprouter/drafts/, so a draft
+    # that only existed on stdout could never be reviewed (the documented
+    # generate -> review -> apply flow silently skipped the middle step).
+    written = write_draft(workspace, draft, args.out)
     if args.apply:
         result = apply_draft(workspace, draft, force=args.force)
-        result["draft_path"] = str(written) if written else None
+        result["draft_path"] = str(written)
         _print_json(result)
         return 0 if result.get("status") == "applied" else 1
-    if written:
+    if args.json:
+        payload = dict(draft)
+        payload["draft_path"] = str(written)
+        _print_json(payload)
+    else:
         print(f"draft written: {written}")
-    if args.json or not written:
-        _print_json(draft)
+        print(f"next: caprouter review --workspace \"{workspace}\"  (or add --apply to merge it now)")
     return 0
 
 
@@ -1868,8 +1871,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             timeout=args.timeout,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -1907,8 +1909,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
                 timeout=args.timeout,
             )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0
 
@@ -1926,8 +1927,7 @@ def cmd_vendor(args: argparse.Namespace) -> int:
             quarantine_path=args.dir,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     return 0
 
@@ -1937,8 +1937,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     try:
         result = uninstall_capability(workspace, args.id, dry_run=not args.yes)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     host = normalize_host(getattr(args, "host", None))
     if host != "unknown" and getattr(args, "unlink_host", False):
         result["host_unlink"] = unlink_managed_skill(
@@ -1952,6 +1951,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     _print_json(result)
     if result.get("status") == "preview":
         print("preview only; pass --yes to uninstall", file=sys.stderr)
+        return EXIT_NEEDS_FLAG
     return 0
 
 
@@ -1974,12 +1974,11 @@ def cmd_rollback(args: argparse.Namespace) -> int:
                 force=args.force,
             )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     if result.get("status") == "preview":
         print("preview only; pass --yes to rollback", file=sys.stderr)
-        return 2
+        return EXIT_NEEDS_FLAG
     return 0
 
 
@@ -1988,8 +1987,7 @@ def cmd_versions(args: argparse.Namespace) -> int:
     try:
         result = list_versions(workspace, args.id)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
         return 0
@@ -2017,8 +2015,7 @@ def cmd_update(args: argparse.Namespace) -> int:
             skip_provenance=args.skip_provenance,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -2061,8 +2058,7 @@ def cmd_quarantine_clean(args: argparse.Namespace) -> int:
             dry_run=not args.yes,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     _print_json(result)
     if result.get("status") == "preview":
         print("preview only; pass --yes to delete", file=sys.stderr)
@@ -2075,8 +2071,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         try:
             preview = preview_install(workspace, args.source, type_hint=args.type, name=args.name)
         except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
+            return _fail(exc)
         if args.json:
             _print_json(preview)
         else:
@@ -2091,7 +2086,31 @@ def cmd_install(args: argparse.Namespace) -> int:
             for warning in preview.get("warnings") or []:
                 print(f"  WARN  {warning}")
         print("installation requires --approve (files are copied, never executed)", file=sys.stderr)
-        return 2
+        print(
+            "tip: pass --approve-hash <source hash> to pin exactly what you reviewed",
+            file=sys.stderr,
+        )
+        return EXIT_NEEDS_FLAG
+    expected_hash = str(getattr(args, "approve_hash", None) or "").strip()
+    if expected_hash:
+        # Pin the reviewed source: `--approve` alone approves whatever is on
+        # disk at approval time, which is not the same as what was previewed.
+        try:
+            preview = preview_install(workspace, args.source, type_hint=args.type, name=args.name)
+        except ValueError as exc:
+            return _fail(exc)
+        current = str(preview.get("source_hash") or "")
+        if current != expected_hash:
+            _print_json(
+                {
+                    "schema": "caprouter.install.v1",
+                    "status": "source_changed",
+                    "preview_hash": expected_hash,
+                    "current_hash": current,
+                    "reason": "source changed since the preview; re-preview and approve the new hash",
+                }
+            )
+            return EXIT_FAILED
     result = install_source(
         workspace,
         args.source,
@@ -2145,8 +2164,7 @@ def cmd_adopt(args: argparse.Namespace) -> int:
             generate_card=not args.no_draft,
         )
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -2168,8 +2186,7 @@ def cmd_backup_skill(args: argparse.Namespace) -> int:
     try:
         result = backup_capability(workspace, args.id, out=args.out)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(exc)
     if args.json:
         _print_json(result)
     else:
@@ -2400,6 +2417,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup_cmd.add_argument("--write", action="store_true", help="write the host config or bundle")
     setup_cmd.add_argument(
+        "--portable",
+        action="store_true",
+        help=(
+            "deepseek-harness only: emit a bundle with no path from this machine "
+            "(python -m caprouter, workspace resolved at startup) for distribution"
+        ),
+    )
+    setup_cmd.add_argument(
         "--link-skills",
         action="store_true",
         help="copy installed skills into the host skill root (deepseek-harness only)",
@@ -2467,6 +2492,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit_cmd = subparsers.add_parser("audit", help="show recent hook audit events")
     audit_cmd.add_argument("--tail", type=int, default=20)
+    audit_cmd.add_argument("--workspace")
     audit_cmd.add_argument("--json", action="store_true")
     audit_cmd.set_defaults(func=cmd_audit)
 
@@ -2572,6 +2598,11 @@ def build_parser() -> argparse.ArgumentParser:
     cap_invoke.add_argument("--cwd")
     cap_invoke.add_argument("--timeout", type=int, default=60)
     cap_invoke.add_argument("--allow-execute", action="store_true")
+    cap_invoke.add_argument(
+        "--allow-external-content",
+        action="store_true",
+        help="explicitly allow a prompt-mode content_path outside the capability/workspace",
+    )
     cap_invoke.add_argument("--workspace")
     cap_invoke.set_defaults(func=cmd_capability_invoke)
 
@@ -2783,6 +2814,10 @@ def build_parser() -> argparse.ArgumentParser:
     install_cmd.add_argument("--type", choices=["skill", "plugin", "project"])
     install_cmd.add_argument("--name", help="override the installed name")
     install_cmd.add_argument("--approve", action="store_true", help="required to copy files")
+    install_cmd.add_argument(
+        "--approve-hash",
+        help="pin the source hash from the preview; refuses to install if the source changed",
+    )
     install_cmd.add_argument("--force", action="store_true", help="replace an existing installation")
     install_cmd.add_argument("--allow-symlinks", action="store_true", help="copy symlinks as links")
     install_cmd.add_argument("--payload-only", action="store_true", help="do not copy provenance/vendor artifacts")

@@ -1,4 +1,4 @@
-# Capability Bus (0.6.3)
+# Capability Bus (0.7.2)
 
 ## 1. Why a bus, not an orchestrator
 
@@ -177,20 +177,31 @@ preview -> approve -> copy -> manifest -> refresh registry -> draft
 
 ## 10. MCP tools
 
-| Tool | Description |
-|---|---|
-| `capability_search` | top candidates + confidence + abstain |
-| `capability_get` | full Card |
-| `capability_invoke` | prompt returns the content path; command executes and returns the transcript |
-| `capability_verify` | deterministic acceptance |
-| `capability_record_outcome` | record success/duration/human_edit_minutes |
-| `capability_record_gap` | record a missing capability |
-| `capability_list_gaps` | list gaps |
-| `capability_probe` | run deterministic probes (single or all) |
-| `capability_probe_record` | backfill behavioral evidence executed by the host |
-| `capability_probe_report` | view probe history and summary |
-| `capability_card_draft` | generate a Card draft (read-only) |
-| `capability_discover` | read-only search of remote skills.sh candidates (requires `allow_network=true`; no download, no install; fetch/vendor/install remain CLI-only) |
+`--tools core` (what `setup --host` and the plugin `.mcp.json` pass) exposes the ten tools marked
+✅; `--tools full` exposes all twenty. The bundled `skills/caprouter/SKILL.md` only calls ✅ tools.
+
+| Tool | Profile | Description |
+|---|---|---|
+| `capability_search` | ✅ core | top candidates + confidence + abstain |
+| `capability_get` | ✅ core | full Card |
+| `capability_invoke` | ✅ core | prompt returns the content path; command executes and returns the transcript |
+| `capability_probe` | ✅ core | run deterministic probes (single or all) |
+| `capability_probe_record` | ✅ core | backfill behavioral evidence executed by the host |
+| `capability_verify` | ✅ core | deterministic acceptance |
+| `capability_record_outcome` | ✅ core | record success/duration/human_edit_minutes |
+| `capability_list_gaps` | ✅ core | list gaps |
+| `capability_install` | ✅ core | local directory/ZIP; preview + `approve_hash` |
+| `capability_uninstall` | ✅ core | preview/confirm removal of a managed capability |
+| `capability_record_gap` | full | record a missing capability |
+| `capability_probe_report` | full | view probe history and summary |
+| `capability_card_draft` | full | generate a Card draft (read-only) |
+| `capability_discover` | full | read-only skills.sh search (requires `allow_network=true`; fetch/vendor/install stay CLI-only) |
+| `capability_versions` | full | current version and historical versions in trash |
+| `capability_health` | full | derive lifecycle from probe/outcome |
+| `capability_duplicates` | full | duplicate copies across roots |
+| `capability_lock` | full | write the lockfile |
+| `capability_drift` | full | compare registry with lockfile |
+| `capability_deps` | full | read-only dependency plan/check; never runs pip/npm |
 
 Plugin root `.mcp.json`:
 
@@ -199,7 +210,7 @@ Plugin root `.mcp.json`:
   "mcpServers": {
     "caprouter": {
       "command": "python",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/caprouter.py", "mcp"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/caprouter.py", "mcp", "--tools", "core"]
     }
   }
 }
@@ -207,11 +218,19 @@ Plugin root `.mcp.json`:
 
 ## 11. bus mode and orchestrator mode
 
-- `mode: bus` (default for new workspaces): the host owns the main loop; the old `PreToolUse` guard lets host tools through;
-  CapRouter only intercepts commands per Card permissions at `capability_invoke`.
+- `mode: bus` (default for new workspaces): the host owns the main loop; the `PreToolUse` guard lets host tools through;
+  CapRouter only intercepts commands per Card permissions at `capability_invoke`. **This means the hook is not a
+  protection in bus mode** — set `guard.enforce_in_bus_mode: true` in `config.json` if you want the host-wide guard
+  (write roots, caprouter-only shell) active there too.
 - `mode: orchestrator`: the old 0.2 behavior, where the guard restricts WebSearch/WebFetch/Task/Bash/Write,
   and `caprouter run` dispatches nodes. Old workspaces without a `mode` field are treated as orchestrator.
   This is a compatibility path and receives no new features.
+- `guard.write_allow` (default `[".caprouter/plans", ".caprouter/scratch"]`) is the only write area the guard
+  allows; entries outside the workspace are ignored. A `caprouter` binary that resolves inside those writable
+  directories is rejected, because anything there can be created by the agent.
+- `pipeline plan/run/verify/outcome` only accept run directories under `<workspace>/.caprouter/pipeline-runs`;
+  command acceptance checks execute `argv` taken from `plan.json`, so accepting an arbitrary directory would let
+  any file the agent can write escalate into command execution.
 
 ## 11.1 Online discovery (quarantine)
 

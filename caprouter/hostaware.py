@@ -76,6 +76,33 @@ def _norm(value: Any) -> str:
     return str(value).replace("\\", "/").lower()
 
 
+def safe_component(name: Any) -> bool:
+    """True when ``name`` is a single portable path component.
+
+    ``link_managed_skill`` / ``unlink_managed_skill`` join the capability name
+    onto a host skill root and may ``rmtree`` the result, so a name such as
+    ``../x`` or ``C:evil`` must be rejected instead of resolved.
+    """
+    text = str(name or "")
+    if not text or text in {".", ".."}:
+        return False
+    if any(char in text for char in ("/", "\\", ":", "\0")):
+        return False
+    candidate = Path(text)
+    try:
+        return not candidate.is_absolute() and candidate.parent == Path(".")
+    except OSError:
+        return False
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def normalize_host(value: Any) -> str:
     text = str(value or "").strip().lower()
     if not text:
@@ -273,6 +300,9 @@ def link_managed_skill(
     if entry_type != "skill":
         result["skipped"] = "Only skills can be linked into a host skill root (plugins/projects are not copied)"
         return result
+    if not safe_component(name):
+        result["skipped"] = f"Refusing unsafe capability id: {capability_id}"
+        return result
     source = Path(workspace).expanduser().resolve() / ".caprouter" / "installed" / _TYPE_DIRS["skill"] / name
     if not source.is_dir():
         result["skipped"] = f"Not installed: {source}"
@@ -287,6 +317,9 @@ def link_managed_skill(
     root_path = roots[0]
     root_path.mkdir(parents=True, exist_ok=True)
     target = root_path / name
+    if not _inside(target, root_path):
+        result["skipped"] = "Refusing to write outside the host skill root"
+        return result
     if target.exists():
         if not force:
             result["skipped"] = f"Already exists: {target} (force=True to replace)"
@@ -329,10 +362,15 @@ def unlink_managed_skill(
     if entry_type != "skill" or not name:
         result["skipped"] = "Only skills are synced to a host skill root"
         return result
+    if not safe_component(name):
+        result["skipped"] = f"Refusing unsafe capability id: {capability_id}"
+        return result
     roots = [Path(root).expanduser()] if root else host_roots(current, workspace=workspace)
     target: Path | None = None
     for candidate_root in roots:
         candidate = candidate_root / name
+        if not _inside(candidate, candidate_root):
+            continue
         if candidate.exists():
             target = candidate
             result["root"] = str(candidate_root)

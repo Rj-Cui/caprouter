@@ -138,7 +138,7 @@ def adopt_capability(
 
     trash: Path | None = None
     if target.exists():
-        trash = managed_root / ".trash" / f"adopt-{resolved_name}-{int(time.time())}"
+        trash = managed_root / ".trash" / f"adopt-{resolved_name}-{int(time.time() * 1000)}"
         trash.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(target), str(trash))
     target.parent.mkdir(parents=True, exist_ok=True)

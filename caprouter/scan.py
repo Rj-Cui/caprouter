@@ -456,7 +456,7 @@ def lint_skill(skill_file: Path) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     try:
-        text = skill_file.read_text(encoding="utf-8", errors="replace")
+        text = skill_file.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         return {"ok": False, "errors": [str(exc)], "warnings": []}
     meta, _body = parse_frontmatter(text)
@@ -536,7 +536,7 @@ def _walk_files(root: Path, target_name: str, max_depth: int = MAX_SCAN_DEPTH) -
 
 def _skill_entry(skill_file: Path, root: Path) -> dict[str, Any] | None:
     try:
-        text = skill_file.read_text(encoding="utf-8", errors="replace")
+        text = skill_file.read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return None
     meta, _body = parse_frontmatter(text)
@@ -585,6 +585,45 @@ def scan_skill_root(root: Path) -> list[dict[str, Any]]:
         return entries
     for skill_file in _walk_files(root, "SKILL.md"):
         entry = _skill_entry(skill_file, root)
+        if entry:
+            entries.append(entry)
+    return entries
+
+
+#: Where a project usually keeps its own skills.
+NESTED_SKILL_DIRS = ("skills", ".claude/skills", ".agents/skills", ".github/skills")
+
+
+def scan_project_skills(project_root: Path) -> list[dict[str, Any]]:
+    """Skills that live *inside* a project directory.
+
+    A repository is often only the container; the capability a user needs is
+    the skill inside it (``<repo>/skills/<name>/SKILL.md`` or
+    ``<repo>/.claude/skills/<name>/SKILL.md``). Indexing only the project
+    directory made ``capability search`` match nothing but the repository name
+    and abstain on the real need.
+    """
+    project_root = Path(project_root)
+    entries: list[dict[str, Any]] = []
+    if not project_root.is_dir():
+        return entries
+    manifests: list[Path] = []
+    root_skill = project_root / "SKILL.md"
+    if root_skill.is_file():
+        manifests.append(root_skill)
+    for relative in NESTED_SKILL_DIRS:
+        base = project_root / relative
+        if base.is_dir():
+            manifests.extend(_walk_files(base, "SKILL.md", max_depth=2))
+    seen: set[str] = set()
+    for manifest in manifests:
+        if manifest.parent.name.startswith("."):
+            continue
+        key = _norm_path(manifest.parent)
+        if key in seen:
+            continue
+        seen.add(key)
+        entry = _skill_entry(manifest, manifest.parent.parent)
         if entry:
             entries.append(entry)
     return entries
@@ -1278,6 +1317,7 @@ def build_registry(
         for entry in entries
         if entry.get("path")
     }
+    project_paths: list[tuple[str, Path]] = []
     for item in scanned_rows:
         path_key = _norm_path(item.get("path") or "")
         if not path_key or path_key in existing_paths:
@@ -1297,6 +1337,28 @@ def build_registry(
         entries.append(entry)
         existing_ids.add(entry["id"])
         existing_paths.add(path_key)
+        if entry.get("type") == "project":
+            project_paths.append((entry["id"], Path(path_key if path_key else item.get("path") or "")))
+
+    # Index skills that live inside a scanned project. Without this, a need that
+    # a nested skill covers can only match the project directory name, so search
+    # abstains even though the skill is right there.
+    for project_id, project_path in project_paths:
+        if not project_path.is_dir():
+            continue
+        for nested in scan_project_skills(project_path):
+            key = _norm_path(nested.get("path") or "")
+            if not key or key in existing_paths:
+                continue
+            if nested["id"] in existing_ids:
+                digest = sha256_text(key).split(":", 1)[-1][:8]
+                nested["id"] = f"{nested['id']}-{digest}"
+                while nested["id"] in existing_ids:
+                    nested["id"] += "x"
+            nested["container"] = project_id
+            entries.append(nested)
+            existing_ids.add(nested["id"])
+            existing_paths.add(key)
 
     merged, duplicates = _merge(entries)
     stats: dict[str, int] = {}

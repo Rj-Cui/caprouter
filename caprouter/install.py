@@ -16,7 +16,6 @@ import re
 import shutil
 import tempfile
 import time
-import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -25,16 +24,15 @@ try:  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     tomllib = None  # type: ignore[assignment]
 
+from .archive import _safe_extract, _zip_root
 from .cards import generate_draft, infer_permissions, write_draft
+from .licenses import _license_info
 from .paths import config_path, default_plugin_roots, default_skill_roots, installed_root, registry_path
 from .scan import build_registry, detect_source_type
 from .util import append_jsonl, hash_tree, now_iso, read_json, safe_name, sha256_text, write_json_atomic
 
 INSTALL_SCHEMA = "caprouter.installed.v1"
 PREVIEW_SCHEMA = "caprouter.install-preview.v1"
-MAX_ZIP_FILES = 5000
-MAX_ZIP_BYTES = 200 * 1024 * 1024
-MAX_ZIP_FILE_BYTES = 50 * 1024 * 1024
 EXECUTABLE_SUFFIXES = {
     ".exe", ".dll", ".bat", ".cmd", ".ps1", ".com", ".msi",
     ".py", ".js", ".mjs", ".cjs", ".sh", ".bash", ".zsh", ".fish",
@@ -51,6 +49,10 @@ JOURNAL_SUBDIR = "installs/journal.jsonl"
 MINIMUM_CAPROUTER_VERSION = "0.6.3"
 TYPE_DIRS = {"skill": "skills", "plugin": "plugins", "project": "projects"}
 
+
+def _trash_stamp() -> str:
+    """Sortable millisecond stamp: zero-padded so name order equals time order."""
+    return f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
 
 def _ignore_for(payload_only: bool):
     if not payload_only:
@@ -150,7 +152,7 @@ def _extract_dependencies(root: Path) -> list[str]:
     pyproject = root / "pyproject.toml"
     if pyproject.is_file() and tomllib is not None:
         try:
-            data = tomllib.loads(pyproject.read_text(encoding="utf-8", errors="replace"))
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8-sig", errors="replace"))
             project = data.get("project") if isinstance(data.get("project"), dict) else {}
             for item in project.get("dependencies") or []:
                 found.append(str(item))
@@ -158,7 +160,7 @@ def _extract_dependencies(root: Path) -> list[str]:
             pass
     requirements = root / "requirements.txt"
     if requirements.is_file():
-        for line in requirements.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in requirements.read_text(encoding="utf-8-sig", errors="replace").splitlines():
             line = line.strip()
             if line and not line.startswith("#") and not line.startswith("-"):
                 found.append(line)
@@ -166,13 +168,11 @@ def _extract_dependencies(root: Path) -> list[str]:
 
 
 def _license_for(root: Path) -> dict[str, Any]:
-    from .remote import _license_info
-
     files: list[tuple[Path, str]] = []
     for name in ("LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING", "NOTICE"):
         path = root / name
         if path.is_file():
-            files.append((Path(name), path.read_text(encoding="utf-8", errors="replace")))
+            files.append((Path(name), path.read_text(encoding="utf-8-sig", errors="replace")))
     if not files:
         return {"name": "unknown", "file": None, "detected": False}
     return _license_info(files)
@@ -202,70 +202,6 @@ def _resolve_source(source: Path | str) -> Path:
     return path
 
 
-def _safe_extract(zip_path: Path, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as archive:
-        infos = archive.infolist()
-        if len(infos) > MAX_ZIP_FILES:
-            raise ValueError(f"zip contains too many files: {len(infos)} > {MAX_ZIP_FILES}")
-        total = sum(info.file_size for info in infos)
-        if total > MAX_ZIP_BYTES:
-            raise ValueError(f"zip expands to too many bytes: {total} > {MAX_ZIP_BYTES}")
-        for info in infos:
-            name = info.filename.replace("\\", "/")
-            if info.flag_bits & 0x1:
-                raise ValueError(f"encrypted zip member is not supported: {name}")
-            if name.startswith("/") or re.match(r"^[A-Za-z]:", name):
-                raise ValueError(f"absolute zip member: {name}")
-            parts = [part for part in name.split("/") if part not in {"", "."}]
-            if any(part == ".." for part in parts):
-                raise ValueError(f"path traversal in zip: {name}")
-            if (info.external_attr >> 16) & 0o170000 == 0o120000:
-                raise ValueError(f"symlink in zip is not supported: {name}")
-            if not parts:
-                continue
-            target = destination.joinpath(*parts)
-            try:
-                target.resolve().relative_to(destination.resolve())
-            except (ValueError, OSError) as exc:
-                raise ValueError(f"zip member escapes destination: {name}") from exc
-            if info.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            if info.file_size > MAX_ZIP_FILE_BYTES:
-                raise ValueError(f"zip member too large: {name}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as source, target.open("wb") as output:
-                copied = 0
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    copied += len(chunk)
-                    if copied > MAX_ZIP_FILE_BYTES:
-                        raise ValueError(f"zip member exceeds the size limit: {name}")
-                    output.write(chunk)
-
-
-def _zip_root(extracted: Path) -> Path:
-    """Find the single capability root inside an extracted archive."""
-    if detect_source_type(extracted):
-        return extracted
-    skill_dirs = sorted({path.parent for path in extracted.rglob("SKILL.md")})
-    if len(skill_dirs) == 1:
-        return skill_dirs[0]
-    plugin_dirs = sorted({
-        path.parent.parent if path.parent.name == ".claude-plugin" else path.parent
-        for path in extracted.rglob("plugin.json")
-    })
-    if len(plugin_dirs) == 1:
-        return plugin_dirs[0]
-    children = [child for child in extracted.iterdir()]
-    if len(children) == 1 and children[0].is_dir():
-        return children[0]
-    return extracted
-
-
 def _prepare_source(source: Path) -> tuple[Path, str, Path | None]:
     if source.is_dir():
         return source, "local-dir", None
@@ -280,7 +216,7 @@ def _prepare_source(source: Path) -> tuple[Path, str, Path | None]:
 
 def _read_text(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return ""
 
@@ -531,7 +467,7 @@ def install_source(
                     "target": str(target),
                     "reason": "already installed; pass --force to replace",
                 }
-            trash = installed_root(workspace) / ".trash" / f"{safe_name(resolved_name)}-{int(time.time())}"
+            trash = installed_root(workspace) / ".trash" / f"{safe_name(resolved_name)}-{_trash_stamp()}"
             trash.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(target), str(trash))
         target.parent.mkdir(parents=True, exist_ok=True)

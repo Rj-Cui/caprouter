@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,9 +14,9 @@ from .paths import config_path, find_workspace_near_plugin, plans_dir, scratch_d
 from .state import is_enabled
 from .util import read_json
 
-DENY_TOOLS = {"WebSearch", "WebFetch", "Task", "Agent", "NotebookEdit", "MultiEdit"}
 WRITE_TOOLS = {"Write", "Edit"}
 SHELL_TOOLS = {"Bash", "PowerShell"}
+DEFAULT_WRITE_ALLOW = (".caprouter/plans", ".caprouter/scratch")
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -126,7 +127,7 @@ def _python_argv_is_caprouter(argv: list[str], cwd: Path, plugin_root: Path) -> 
     return _is_plugin_caprouter_script(argv[1], cwd, plugin_root)
 
 
-def _is_allowed_command(segment: str, cwd: Path, plugin_root: Path) -> bool:
+def _is_allowed_command(segment: str, cwd: Path, plugin_root: Path, workspace: Path) -> bool:
     text = segment.strip()
     if not text:
         return False
@@ -138,7 +139,7 @@ def _is_allowed_command(segment: str, cwd: Path, plugin_root: Path) -> bool:
         return False
     executable = Path(argv[0].lower()).name
     if executable in _CAPROUTER_EXECUTABLES:
-        return True
+        return _caprouter_binary_trusted(argv[0], cwd, workspace)
     if executable == "cd":
         return len(argv) <= 2 or (len(argv) == 3 and argv[1].lower() == "/d")
     if executable in _PYTHON_EXECUTABLES:
@@ -149,22 +150,71 @@ def _is_allowed_command(segment: str, cwd: Path, plugin_root: Path) -> bool:
         rest = argv[2:]
         runner = Path(rest[0].lower()).name
         if runner in _CAPROUTER_EXECUTABLES:
-            return True
+            return _caprouter_binary_trusted(rest[0], cwd, workspace)
         if runner in _PYTHON_EXECUTABLES:
             return _python_argv_is_caprouter(rest, cwd, plugin_root)
         return False
     if executable in {"uvx", "uvx.exe"}:
-        return len(argv) >= 2 and Path(argv[1].lower()).name in _CAPROUTER_EXECUTABLES
+        if len(argv) < 2 or Path(argv[1].lower()).name not in _CAPROUTER_EXECUTABLES:
+            return False
+        return _caprouter_binary_trusted(argv[1], cwd, workspace)
     return False
 
 
-def _allowed_write(path_text: str, cwd: Path, workspace: Path) -> bool:
+def _caprouter_binary_trusted(token: str, cwd: Path, workspace: Path) -> bool:
+    """Reject a ``caprouter`` executable that resolves into an agent-writable area.
+
+    Trusting the bare basename is not enough: the agent can create files under
+    ``.caprouter/plans`` and ``.caprouter/scratch``, so a dropped ``caprouter.cmd``
+    there would otherwise turn "run caprouter" into "run anything".
+    """
+    cleaned = token.strip().strip('"').strip("'")
+    candidate = Path(cleaned)
+    resolved: Path | None
+    if candidate.is_absolute() or candidate.parent != Path("."):
+        resolved = candidate if candidate.is_absolute() else (cwd / candidate)
+    else:
+        found = shutil.which(cleaned)
+        resolved = Path(found) if found else None
+    if resolved is None:
+        return False
+    try:
+        resolved = resolved.resolve()
+    except OSError:
+        return False
+    writable = (plans_dir(workspace), scratch_dir(workspace))
+    return not any(_inside(resolved, root) for root in writable)
+
+
+def _write_roots(workspace: Path, write_allow: Any) -> list[Path]:
+    """Resolve ``guard.write_allow`` into absolute roots inside the workspace."""
+    entries: list[Any] = (
+        [item for item in write_allow]
+        if isinstance(write_allow, list) and write_allow
+        else list(DEFAULT_WRITE_ALLOW)
+    )
+    roots: list[Path] = []
+    for entry in entries:
+        text = str(entry or "").strip()
+        if not text:
+            continue
+        candidate = Path(text).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        # A configured root outside the workspace would silently widen the
+        # sandbox, so such entries are ignored.
+        if _inside(candidate, workspace):
+            roots.append(candidate)
+    return roots or [plans_dir(workspace), scratch_dir(workspace)]
+
+
+def _allowed_write(path_text: str, cwd: Path, workspace: Path, write_roots: list[Path]) -> bool:
     if not path_text:
         return False
     target = Path(path_text)
     if not target.is_absolute():
         target = cwd / target
-    return _inside(target, plans_dir(workspace)) or _inside(target, scratch_dir(workspace))
+    return any(_inside(target, root) for root in write_roots)
 
 
 def decide(payload: dict[str, Any], plugin_root: Path | None = None) -> dict[str, str]:
@@ -185,11 +235,17 @@ def decide(payload: dict[str, Any], plugin_root: Path | None = None) -> dict[str
     guard_config = config.get("guard") if isinstance(config, dict) else {}
     if not isinstance(guard_config, dict):
         guard_config = {}
+    write_roots = _write_roots(workspace, guard_config.get("write_allow"))
     mode = str(config.get("mode") or guard_config.get("mode") or "orchestrator")
-    if mode == "bus":
+    if mode == "bus" and not bool(guard_config.get("enforce_in_bus_mode", False)):
         # In bus mode the host owns the loop; the MCP capability bus gates
-        # command execution per card instead of the host-wide guard.
-        return {"decision": "allow", "reason": "bus mode: host owns the loop; capability invocation is gated by the bus"}
+        # command execution per card instead of the host-wide guard. This is a
+        # deliberate trade-off, not a protection: set guard.enforce_in_bus_mode
+        # to keep the host-wide guard active in a bus workspace.
+        return {
+            "decision": "allow",
+            "reason": "bus mode: host owns the loop; capability invocation is gated by the bus (set guard.enforce_in_bus_mode=true to gate the host too)",
+        }
     allow_native = bool(guard_config.get("allow_native_subagents", False))
     allow_web = bool(guard_config.get("allow_web", False))
 
@@ -217,11 +273,12 @@ def decide(payload: dict[str, Any], plugin_root: Path | None = None) -> dict[str
 
     if tool in WRITE_TOOLS:
         path_text = str(tool_input.get("file_path") or tool_input.get("path") or "")
-        if _allowed_write(path_text, cwd, workspace):
-            return {"decision": "allow", "reason": "write is inside the plan/scratch area"}
+        if _allowed_write(path_text, cwd, workspace, write_roots):
+            return {"decision": "allow", "reason": "write is inside an allowed write root"}
+        shown = ", ".join(str(root) for root in write_roots)
         return {
             "decision": "deny",
-            "reason": "CapRouter: writes are limited to .caprouter/plans and .caprouter/scratch",
+            "reason": f"CapRouter: writes are limited to the configured write roots ({shown})",
         }
 
     if tool in SHELL_TOOLS:
@@ -232,7 +289,9 @@ def decide(payload: dict[str, Any], plugin_root: Path | None = None) -> dict[str
         if unsafe:
             return {"decision": "deny", "reason": f"CapRouter: {unsafe}"}
         segments = _split_commands(command)
-        if segments and all(_is_allowed_command(segment, cwd, root) for segment in segments):
+        if segments and all(
+            _is_allowed_command(segment, cwd, root, workspace) for segment in segments
+        ):
             return {"decision": "allow", "reason": "command is a CapRouter command"}
         return {
             "decision": "deny",
@@ -260,11 +319,26 @@ def main() -> int:
     if not isinstance(payload, dict):
         return 0
     plugin_root = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parent.parent)
+    tool = str(payload.get("tool_name") or payload.get("tool") or "")
     try:
         result = decide(payload, plugin_root)
-    except Exception:
-        # A broken guard must not brick the host; fail open, and report through doctor.
-        return 0
+    except Exception as exc:  # noqa: BLE001
+        # A broken guard must never silently allow writes or shell: those fail
+        # closed, everything else (reads) keeps the host usable. The reason is
+        # recorded in the audit log below.
+        if tool in WRITE_TOOLS or tool in SHELL_TOOLS:
+            result = {
+                "decision": "deny",
+                "reason": (
+                    f"CapRouter guard raised {type(exc).__name__}; "
+                    f"execution-capable tool {tool or '?'} fails closed"
+                ),
+            }
+        else:
+            result = {
+                "decision": "allow",
+                "reason": f"CapRouter guard raised {type(exc).__name__} on a non-execution tool",
+            }
     try:
         append_audit(
             {

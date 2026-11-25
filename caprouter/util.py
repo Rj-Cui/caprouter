@@ -28,11 +28,25 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def read_json(path: Path | str, default: Any = None) -> Any:
+def read_json_checked(path: Path | str) -> tuple[Any, str]:
+    """Read JSON and report why it failed: ok / missing / invalid / io_error."""
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return default
+        raw = Path(path).read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError:
+        return None, "io_error"
+    except UnicodeDecodeError:
+        return None, "invalid"
+    try:
+        return json.loads(raw), "ok"
+    except json.JSONDecodeError:
+        return None, "invalid"
+
+
+def read_json(path: Path | str, default: Any = None) -> Any:
+    data, status = read_json_checked(path)
+    return data if status == "ok" else default
 
 
 def write_json_atomic(path: Path | str, data: Any) -> None:

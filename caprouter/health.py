@@ -29,13 +29,24 @@ def _state(
     rate = stats.get("success_rate")
     if calls >= 2 and isinstance(rate, (int, float)) and float(rate) < 0.5:
         return "degraded"
+    # A Card whose own review did not pass must not be called "active" just
+    # because a static probe passed: review and health would contradict.
+    review_status = _review_status(card)
+    reviewed_out = review_status in {"needs_review", "rejected", "repair_failed"}
     if probe_status == "pass":
-        return "active"
+        return "probation" if reviewed_out else "active"
     if calls >= 1 and isinstance(rate, (int, float)) and float(rate) >= 0.5:
-        return "active"
+        return "probation" if reviewed_out else "active"
     if isinstance(card, dict):
         return "probation"
     return "draft"
+
+
+def _review_status(card: dict[str, Any] | None) -> str:
+    if not isinstance(card, dict):
+        return ""
+    review = card.get("review")
+    return str((review or {}).get("status") or "").strip().lower() if isinstance(review, dict) else ""
 
 
 def capability_health(
@@ -74,6 +85,7 @@ def capability_health(
                 "name": entry.get("name"),
                 "path": entry.get("path"),
                 "state": _state(item_stats, probe, card),
+                "review_status": _review_status(card) or None,
                 "probe_status": probe_status,
                 "probe_evidence": (probe or {}).get("evidence"),
                 "success_rate": item_stats.get("success_rate"),

@@ -48,7 +48,7 @@ GUI_DEPS = {"electron", "tauri", "@tauri-apps/api", "pyqt5", "pyqt6", "pyside6",
 
 def _read(path: Path, limit: int = MAX_FILE_CHARS) -> str:
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
+        with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
             return handle.read(limit)
     except OSError:
         return ""

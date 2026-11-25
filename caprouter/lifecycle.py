@@ -29,6 +29,10 @@ UNINSTALL_SCHEMA = "caprouter.uninstall.v1"
 ROLLBACK_SCHEMA = "caprouter.rollback.v1"
 
 
+def _trash_stamp() -> str:
+    """Sortable millisecond stamp: zero-padded so name order equals time order."""
+    return f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
+
 def _bus_dir(workspace: Path | str) -> Path:
     return Path(workspace) / ".caprouter"
 
@@ -92,7 +96,7 @@ def uninstall_capability(
     if not target.is_dir() or not _inside(target, root):
         raise ValueError(f"refusing to uninstall outside installed/: {target}")
     trash_root = root / ".trash"
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000}"
+    stamp = _trash_stamp()
     trash = trash_root / f"{safe_name(capability_id)}-{stamp}"
     # Hash before moving: the trash copy later gains uninstall.json, which must
     # not make a host-side copy look "locally modified".
@@ -168,16 +172,20 @@ def rollback_capability(
     if not record:
         raise ValueError(f"no uninstall record for: {capability_id}")
     trash = Path(str(record.get("trash_path") or ""))
-    if not trash.is_dir():
-        raise ValueError(f"uninstall trash is missing: {trash}")
     target = Path(str(record.get("original_path") or ""))
     root = installed_root(workspace)
+    if not _inside(trash, root / ".trash"):
+        # uninstalled.jsonl is a data file; a tampered row must not point the
+        # restore at an arbitrary directory.
+        raise ValueError(f"refusing to restore from outside installed/.trash: {trash}")
+    if not trash.is_dir():
+        raise ValueError(f"uninstall trash is missing: {trash}")
     if not _inside(target, root):
         raise ValueError(f"rollback target is outside installed/: {target}")
     if target.exists() and not force:
         raise ValueError(f"rollback target already exists: {target}; pass --force")
 
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000}"
+    stamp = _trash_stamp()
     displaced = root / ".trash" / f"{safe_name(capability_id)}-pre-rollback-{stamp}"
     result = {
         "schema": ROLLBACK_SCHEMA,
@@ -302,10 +310,10 @@ def rollback_to_version(
     root = installed_root(workspace)
     if not _inside(target, root):
         raise ValueError(f"refusing to rollback outside installed/: {target}")
-    candidates: list[tuple[Path, dict[str, Any]]] = []
+    candidates: list[tuple[float, str, Path, dict[str, Any]]] = []
     trash_root = root / ".trash"
     if trash_root.is_dir():
-        for candidate in sorted(trash_root.iterdir()):
+        for candidate in trash_root.iterdir():
             if not candidate.is_dir():
                 continue
             manifest = _manifest_for(candidate)
@@ -315,14 +323,20 @@ def rollback_to_version(
                 continue
             if hash_value and str(manifest.get("hash")) != str(hash_value):
                 continue
-            candidates.append((candidate, manifest))
+            try:
+                # Order by when the copy entered the trash, not by its name:
+                # older releases and pre-rollback names do not sort chronologically.
+                stamp = candidate.stat().st_mtime
+            except OSError:
+                stamp = 0.0
+            candidates.append((stamp, candidate.name, candidate, manifest))
     if not candidates:
         raise ValueError(
             f"no matching version in trash for {capability_id} "
             f"(version={version or '*'}, hash={hash_value or '*'})"
         )
-    candidate, manifest = candidates[-1]
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000}"
+    candidate, manifest = sorted(candidates, key=lambda item: (item[0], item[1]))[-1][2:]
+    stamp = _trash_stamp()
     displaced = trash_root / f"{safe_name(capability_id)}-pre-rollback-{stamp}"
     result = {
         "schema": ROLLBACK_SCHEMA,

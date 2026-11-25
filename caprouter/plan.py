@@ -13,7 +13,7 @@ REPORT_TYPES = {"report", "markdown", "article", "doc", "document"}
 
 
 def load_plan(path: Path | str) -> dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def _text(value: Any) -> str:

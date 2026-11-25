@@ -18,7 +18,7 @@
         "required": ["id", "type", "name", "path"],
         "properties": {
           "id": { "type": "string" },
-          "type": { "enum": ["skill", "plugin", "cli-agent", "project"] },
+          "type": { "enum": ["skill", "plugin", "cli-agent", "project", "mcp"] },
           "name": { "type": "string" },
           "path": { "type": "string" },
           "description": { "type": "string" },

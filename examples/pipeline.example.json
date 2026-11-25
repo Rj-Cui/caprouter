@@ -1,0 +1,27 @@
+{
+  "schema": "caprouter.pipeline.v1",
+  "id": "convert-then-verify",
+  "goal": "Convert a PDF to Word, then check the artifact length.",
+  "steps": [
+    {
+      "id": "convert",
+      "need": "convert a PDF to Word",
+      "preferred": ["skill:pdf-tool"],
+      "fallback": [],
+      "output": "artifacts/convert.docx.md",
+      "permissions": { "fs": ["read", "write"], "net": false, "shell": false },
+      "acceptance": ["200-20000 characters"]
+    },
+    {
+      "id": "summary",
+      "need": "summarize the converted document",
+      "output": "artifacts/summary.md",
+      "acceptance": ["150-800 characters", "exactly 3 items"]
+    }
+  ],
+  "notes": [
+    "Copy this file to <workspace>/.caprouter/pipelines/<id>.json, then: caprouter pipeline plan --id <id>",
+    "acceptance entries may be free text or structured check objects",
+    "command checks additionally need {\"type\":\"command\",\"allow\":true,\"argv\":[...]} and step permissions.shell=true"
+  ]
+}

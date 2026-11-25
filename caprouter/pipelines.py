@@ -9,6 +9,7 @@ integrator rather than a model/provider gateway.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import time
@@ -39,6 +40,27 @@ def pipelines_dir(workspace: Path | str) -> Path:
 
 def pipeline_runs_dir(workspace: Path | str) -> Path:
     return bus_dir(workspace) / "pipeline-runs"
+
+
+def _run_dir_error(workspace: Path, run_dir: Path) -> str | None:
+    """Reject run directories that are not inside this workspace.
+
+    ``pipeline verify --allow-execute`` runs command acceptance checks whose
+    ``argv``, ``check.allow`` and ``step.permissions.shell`` all come from the
+    run's own ``plan.json``. If any directory were accepted, whatever can write
+    a JSON file (for example the guard's own ``.caprouter/plans`` write area)
+    could turn into arbitrary command execution. So a run directory must be one
+    that ``pipeline plan`` created under ``<workspace>/.caprouter/pipeline-runs``.
+    """
+    root = pipeline_runs_dir(workspace)
+    try:
+        Path(run_dir).resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return (
+            f"refusing run directory outside the workspace pipeline area: {run_dir} "
+            f"(expected a subdirectory of {root}); create one with: caprouter pipeline plan"
+        )
+    return None
 
 
 def list_pipelines(workspace: Path | str) -> dict[str, Any]:
@@ -147,6 +169,21 @@ def _select_step(workspace: Path | str, step: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _describe_check(check: Any) -> str:
+    """Render one acceptance check for ``run.md``.
+
+    ``validate_pipeline`` accepts a free-text criterion (the same shape
+    ``capability verify --criterion "150-200 characters"`` takes) as well as a
+    structured object, so rendering must not assume a dict.
+    """
+    if isinstance(check, dict):
+        if check.get("type") == "command":
+            argv = " ".join(str(item) for item in (check.get("argv") or []))
+            return f"command {check.get('label') or ''}: {argv}".strip()
+        return json.dumps(check, ensure_ascii=False)
+    return str(check)
+
+
 def _render_run_md(plan: dict[str, Any], run_dir: Path) -> str:
     lines = [
         f"# Pipeline run: {plan.get('pipeline')}",
@@ -175,10 +212,7 @@ def _render_run_md(plan: dict[str, Any], run_dir: Path) -> str:
         if step.get("acceptance"):
             lines.append("- Acceptance:")
             for check in step["acceptance"]:
-                if check.get("type") == "command":
-                    lines.append(f"  - command {check.get('label')}: {' '.join(map(str, check.get('argv') or []))}")
-                else:
-                    lines.append(f"  - {json.dumps(check, ensure_ascii=False)}")
+                lines.append(f"  - {_describe_check(check)}")
     lines.extend(
         [
             "",
@@ -287,8 +321,15 @@ def plan_pipeline(
         "created_at": now_iso(),
         "steps": selected_steps,
     }
-    write_json_atomic(run_dir / "plan.json", plan)
-    (run_dir / "run.md").write_text(_render_run_md(plan, run_dir), encoding="utf-8")
+    try:
+        run_md = _render_run_md(plan, run_dir)
+        (run_dir / "run.md").write_text(run_md, encoding="utf-8")
+        write_json_atomic(run_dir / "plan.json", plan)
+    except Exception:
+        # Never leave a half-initialized run directory: no plan.json without
+        # run.md, and no directory that later commands would treat as a run.
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
     plan["run_md"] = str(run_dir / "run.md")
     return plan
 
@@ -373,8 +414,11 @@ def verify_pipeline(
     allow_execute: bool = False,
     timeout: int = 120,
 ) -> dict[str, Any]:
-    workspace = Path(workspace)
+    workspace = Path(workspace).expanduser().resolve()
     run_dir = Path(run_dir).expanduser().resolve()
+    hidden = _run_dir_error(workspace, run_dir)
+    if hidden:
+        return {"schema": VERIFY_SCHEMA, "status": "invalid", "reason": hidden}
     plan = read_json(run_dir / "plan.json", {})
     if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
         return {"schema": VERIFY_SCHEMA, "status": "invalid", "reason": f"not a pipeline run: {run_dir}"}
@@ -459,8 +503,11 @@ def record_pipeline_outcome(
     human_edit_minutes: float | None = None,
     notes: str = "",
 ) -> dict[str, Any]:
-    workspace = Path(workspace)
+    workspace = Path(workspace).expanduser().resolve()
     run_dir = Path(run_dir).expanduser().resolve()
+    hidden = _run_dir_error(workspace, run_dir)
+    if hidden:
+        return {"schema": OUTCOME_SCHEMA, "status": "invalid", "reason": hidden}
     plan = read_json(run_dir / "plan.json", {})
     if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
         return {"schema": OUTCOME_SCHEMA, "status": "invalid", "reason": f"not a pipeline run: {run_dir}"}
@@ -511,8 +558,11 @@ def run_pipeline(
     """
     from .capabilities import invoke_capability
 
-    workspace = Path(workspace)
+    workspace = Path(workspace).expanduser().resolve()
     run_dir = Path(run_dir).expanduser().resolve()
+    hidden = _run_dir_error(workspace, run_dir)
+    if hidden:
+        return {"schema": RUN_SCHEMA, "status": "invalid", "reason": hidden}
     plan = read_json(run_dir / "plan.json", {})
     if not isinstance(plan, dict) or plan.get("schema") != PLAN_SCHEMA:
         return {

@@ -27,6 +27,7 @@ REQUIRED_FILES = (
     "CHANGELOG.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
+    ".mcp.json",
 )
 
 # These top-level directories must contribute at least one file to the zip
@@ -42,14 +43,17 @@ REQUIRED_PREFIXES = (
     "hooks/",
     "tray/",
     "packaging/",
+    "examples/",
+    # Documented in README: a released source zip can run the test suite and
+    # `caprouter eval`, so both must ship (0.7.2 added them to the allowlist).
+    "tests/",
+    "eval/",
 )
 
 # Path segments that must never appear in the zip (build junk / dev dirs)
 BANNED_SEGMENTS = (
     ".git",
     ".github",
-    "tests",
-    "eval",
     "build",
     "dist",
     "workspace",

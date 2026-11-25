@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .util import read_json, write_json_atomic
 
 SETUP_SCHEMA = "caprouter.host-setup.v1"
@@ -77,7 +78,48 @@ def _yaml_str(value: Path | str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def dsh_patch_text(workspace: Path | str, *, python_exe: str | None = None) -> str:
+def _portable_patch_text() -> str:
+    """Patch for distribution: contains no path from the packaging machine.
+
+    The interpreter is resolved when the row mounts (``CAPROUTER_PYTHON`` wins,
+    then the platform default), the server starts as ``python -m caprouter`` so
+    a pip-installed CapRouter works on any machine, and the workspace is left to
+    CapRouter's own resolution (``CAPROUTER_WORKSPACE``, a workspace above the
+    working directory, then ``~/CapRouter/workspace``).
+    """
+    return "\n".join(
+        [
+            "- insert:",
+            "    - id: mcp-caprouter",
+            "      name: '@deepseek-ai/dsh-mcp-client'",
+            "      config:",
+            "        serverName: caprouter",
+            "        transport: stdio",
+            "        command: !!js 'process.env.CAPROUTER_PYTHON || (process.platform === \"win32\" ? \"py\" : \"python3\")'",
+            "        args:",
+            "          - -m",
+            "          - caprouter",
+            "          - mcp",
+            "          - --tools",
+            "          - core",
+            "          - --host",
+            "          - deepseek-harness",
+            "        startupTimeoutMs: 15000",
+            "        toolCallTimeoutMs: 120000",
+            "        failOnStartupError: true",
+            "",
+        ]
+    )
+
+
+def dsh_patch_text(
+    workspace: Path | str,
+    *,
+    python_exe: str | None = None,
+    portable: bool = False,
+) -> str:
+    if portable:
+        return _portable_patch_text()
     workspace = Path(workspace).expanduser().resolve()
     script = (repo_root() / "bin" / "caprouter.py").resolve()
     python_exe = python_exe or python_command()
@@ -108,13 +150,13 @@ def dsh_patch_text(workspace: Path | str, *, python_exe: str | None = None) -> s
 
 def dsh_manifest(include_icon: bool) -> dict[str, Any]:
     exports = {"./locale/*.json": "./locale/*.json"}
-    files = ["cordis.patch.yml", "locale/*.json", "README.md"]
+    files = ["cordis.patch.yml", "locale/*.json", "docs", "README.md"]
     if include_icon:
         exports["./icon"] = "./icon.png"
         files.append("icon.png")
     return {
         "name": "@local/caprouter-mcp",
-        "version": "1.0.0",
+        "version": __version__,
         "private": True,
         "type": "module",
         "description": "Connects the local CapRouter capability bus to DSH as an MCP server.",
@@ -124,7 +166,85 @@ def dsh_manifest(include_icon: bool) -> dict[str, Any]:
     }
 
 
-def _dsh_readme(workspace: Path, python_exe: str, script: Path) -> str:
+def _dsh_detail(
+    workspace: Path,
+    python_exe: str,
+    script: Path,
+    *,
+    portable: bool = False,
+) -> str:
+    """Detail page text shown in DSH → Plugins for this bundle."""
+    if portable:
+        runtime = (
+            "## How it runs\n\n"
+            "- interpreter: `CAPROUTER_PYTHON`, else `py` on Windows and `python3` elsewhere\n"
+            "- command: `<python> -m caprouter mcp --tools core --host deepseek-harness`\n"
+            "- transport: stdio\n\n"
+            "Requires Python 3.11+ and `pip install caprouter`. The workspace is resolved at "
+            "startup (`CAPROUTER_WORKSPACE`, a workspace above the session directory, then "
+            "`~/CapRouter/workspace`); nothing from this machine is embedded.\n\n"
+        )
+    else:
+        runtime = (
+            "## How it runs\n\n"
+            f"- command: `{python_exe}`\n"
+            f"- args: `{script} mcp --workspace {workspace} --tools core --host deepseek-harness`\n"
+            "- transport: stdio\n\n"
+            "The server reads the workspace named in the patch. If you move either the CapRouter "
+            "repository or the workspace, regenerate the bundle so the paths stay valid.\n\n"
+        )
+    return (
+        "# CapRouter capability bus\n\n"
+        "Adds the CapRouter MCP server to DSH. CapRouter is a local ledger for the skills, plugins, "
+        "MCP servers and CLI agents already installed on this machine: it indexes them, routes a need "
+        "to a candidate, runs deterministic probes and acceptance checks, and records outcomes.\n\n"
+        "## What it adds\n\n"
+        "The `core` tool profile exposes ten `mcp__caprouter__*` tools: `capability_search`, "
+        "`capability_get`, `capability_invoke`, `capability_probe`, `capability_probe_record`, "
+        "`capability_verify`, `capability_record_outcome`, `capability_list_gaps`, "
+        "`capability_install` and `capability_uninstall`. Switch the patch to `--tools full` for all "
+        "twenty, including discovery, card drafts, versions, health, duplicates, lock, drift and deps.\n\n"
+        + runtime
+        + "## Limits\n\n"
+        "- CapRouter never installs or executes anything without an explicit approval: `install` copies "
+        "files, and command execution needs a reviewed Card permission plus `allow_execute`.\n"
+        "- Search abstains when it is not confident; an empty result is a supported answer.\n"
+        "- Probe evidence marked `static` proves that a capability is present and invokable, not that "
+        "it produces good output. Behavioral evidence must be recorded by the host.\n"
+        "- The workspace is local state: its registry, probes and outcomes stay on this machine and are "
+        "not published by this bundle.\n\n"
+        "## Review status\n\n"
+        "This is a local directory bundle installed for review; it is not published to a public "
+        "registry. Regenerate it with `caprouter setup --host deepseek-harness --write --portable`.\n"
+    )
+
+
+def _dsh_readme(workspace: Path, python_exe: str, script: Path, *, portable: bool = False) -> str:
+    if portable:
+        return (
+            "# CapRouter for DeepSeek Harness\n\n"
+            "This directory is a config-only DSH bundle generated by "
+            "`caprouter setup --host deepseek-harness --write --portable`. "
+            "It contains no path from the machine that produced it.\n\n"
+            "## Before installing\n\n"
+            "1. Python 3.11+ on PATH. The row uses `py` on Windows and `python3` elsewhere; "
+            "set `CAPROUTER_PYTHON` to an absolute interpreter to override it.\n"
+            "2. CapRouter installed for that interpreter:\n\n"
+            "   ```bash\n   pip install caprouter\n   ```\n\n"
+            "   From a checkout, run `pip install .` in the repository root instead.\n\n"
+            "## Install\n\n"
+            "1. DSH → **Plugins** → **Add plugin** (local directory).\n"
+            "2. Pick this folder.\n"
+            "3. Start a new session; the ten core `mcp__caprouter__*` tools appear.\n\n"
+            "## Workspace\n\n"
+            "The server resolves the workspace in this order: `CAPROUTER_WORKSPACE`, a "
+            "workspace found above the session directory, then the default "
+            "`~/CapRouter/workspace` (`%USERPROFILE%\\CapRouter\\workspace` on Windows). "
+            "Create it once with:\n\n"
+            "```bash\ncaprouter init --workspace ~/CapRouter/workspace\n```\n\n"
+            "All CapRouter state (registry, probes, outcomes) stays in that workspace on "
+            "this machine; this bundle publishes none of it.\n"
+        )
     return (
         "# CapRouter for DeepSeek Harness\n\n"
         "This directory is a config-only DSH bundle generated by "
@@ -132,14 +252,15 @@ def _dsh_readme(workspace: Path, python_exe: str, script: Path) -> str:
         "Install it in DSH once:\n\n"
         "1. Open DSH → **Plugins** → **Add plugin** (local directory).\n"
         "2. Pick this folder.\n"
-        "3. Start a new session; the eight core `mcp__caprouter__*` tools appear.\n\n"
-        "The bundle passes `--tools core` to keep the model-facing surface small. "
+        "3. Start a new session; the ten core `mcp__caprouter__*` tools appear.\n\n"
+        "The bundle passes `--tools core` (search/get/invoke/probe/probe_record/"
+        "verify/record_outcome/list_gaps/install/uninstall). "
         "For all twenty tools, change that arg to `full` in cordis.patch.yml.\n\n"
         "It launches:\n\n"
         f"- command: `{python_exe}`\n"
         f"- args: `{script} mcp --workspace {workspace}`\n\n"
-        "If you move the CapRouter repository, regenerate this bundle with the "
-        "same command so the paths stay valid.\n"
+        "This form embeds this machine's paths. Regenerate it if you move the CapRouter "
+        "repository. For a bundle you can hand to another machine, use `--portable`.\n"
     )
 
 
@@ -148,8 +269,14 @@ def write_dsh_bundle(
     bundle_dir: Path | str,
     *,
     python_exe: str | None = None,
+    portable: bool = False,
 ) -> dict[str, Any]:
-    """Write a self-contained DSH config-only bundle. No profile file is touched."""
+    """Write a self-contained DSH config-only bundle. No profile file is touched.
+
+    ``portable=True`` omits every path of this machine so the directory can be
+    handed to another host: the interpreter is resolved when the row mounts and
+    the server starts as ``python -m caprouter``.
+    """
     workspace = Path(workspace).expanduser().resolve()
     bundle_dir = Path(bundle_dir).expanduser()
     python_exe = python_exe or python_command()
@@ -158,7 +285,7 @@ def write_dsh_bundle(
     include_icon = icon_src.exists()
     files: dict[str, str] = {
         "package.json": json.dumps(dsh_manifest(include_icon), ensure_ascii=False, indent=2) + "\n",
-        "cordis.patch.yml": dsh_patch_text(workspace, python_exe=python_exe),
+        "cordis.patch.yml": dsh_patch_text(workspace, python_exe=python_exe, portable=portable),
         "locale/en.json": json.dumps(
             {
                 "meta": {
@@ -168,6 +295,7 @@ def write_dsh_bundle(
                         "search, inspect, probe, install and verify local skills, plugins and scripts "
                         "in the configured CapRouter workspace."
                     ),
+                    "detail": "docs/DETAIL.md",
                 }
             },
             ensure_ascii=False,
@@ -182,13 +310,15 @@ def write_dsh_bundle(
                         "连接本机 CapRouter MCP 服务，新增 capability_* 工具，用于在指定工作区内"
                         "搜索、查看、探测、安装与验证本机技能、插件和脚本。"
                     ),
+                    "detail": "docs/DETAIL.md",
                 }
             },
             ensure_ascii=False,
             indent=2,
         )
         + "\n",
-        "README.md": _dsh_readme(workspace, python_exe, script),
+        "docs/DETAIL.md": _dsh_detail(workspace, python_exe, script, portable=portable),
+        "README.md": _dsh_readme(workspace, python_exe, script, portable=portable),
     }
     bundle_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
@@ -205,6 +335,7 @@ def write_dsh_bundle(
         "bundle_dir": str(bundle_dir),
         "files": written,
         "icon": include_icon,
+        "portable": portable,
         "patch": str(bundle_dir / "cordis.patch.yml"),
     }
 
@@ -296,6 +427,7 @@ def setup_host(
     link_skills: bool = False,
     skills_root: Path | str | None = None,
     force: bool = False,
+    portable: bool = False,
 ) -> dict[str, Any]:
     if host not in HOSTS:
         raise ValueError(f"unknown host: {host}; choose from {', '.join(HOSTS)}")
@@ -307,7 +439,10 @@ def setup_host(
             link_skills=link_skills,
             skills_root=skills_root,
             force=force,
+            portable=portable,
         )
+    if portable:
+        raise ValueError("--portable is only supported for --host deepseek-harness")
     if link_skills:
         raise ValueError("--link-skills is only supported for --host deepseek-harness")
     path = Path(config_path).expanduser() if config_path else default_config_path(host, workspace)
@@ -355,6 +490,7 @@ def _setup_dsh(
     link_skills: bool = False,
     skills_root: Path | str | None = None,
     force: bool = False,
+    portable: bool = False,
 ) -> dict[str, Any]:
     workspace = Path(workspace).expanduser().resolve()
     target = (
@@ -370,7 +506,8 @@ def _setup_dsh(
         "workspace": str(workspace),
         "bundle_dir": str(target),
         "python": python_exe,
-        "patch_text": dsh_patch_text(workspace, python_exe=python_exe),
+        "portable": portable,
+        "patch_text": dsh_patch_text(workspace, python_exe=python_exe, portable=portable),
         "written": False,
         "files": [],
         "skills_root": str(root),
@@ -384,7 +521,7 @@ def _setup_dsh(
         ],
     }
     if write:
-        bundle = write_dsh_bundle(workspace, target, python_exe=python_exe)
+        bundle = write_dsh_bundle(workspace, target, python_exe=python_exe, portable=portable)
         result.update(
             {
                 "written": True,

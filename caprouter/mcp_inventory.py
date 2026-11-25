@@ -122,7 +122,7 @@ def candidate_configs(workspace: Path | str | None = None) -> list[tuple[str, Pa
 def read_config(path: Path | str) -> Any:
     path = Path(path)
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return None
     if path.suffix.lower() == ".toml":

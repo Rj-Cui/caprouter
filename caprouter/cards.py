@@ -85,7 +85,7 @@ def draft_path(workspace: Path | str, capability_id: str) -> Path:
 def _read_text(path: Path | None, limit: int = 20_000) -> str:
     if path and path.is_file():
         try:
-            with path.open("r", encoding="utf-8", errors="replace") as handle:
+            with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
                 return handle.read(limit)
         except OSError:
             return ""

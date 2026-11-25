@@ -18,7 +18,8 @@ Defenses in place:
 - `adopt` copies an external skill; the original path is never moved or modified;
 - command execution requires four conditions plus the global `state` switch;
 - MCP `capability_install` requires `approve_hash` from a preview, not a bare approval flag;
-- execution and refusal decisions are written to `~/.caprouter/audit.jsonl`;
+- execution and refusal decisions are written to `<workspace>/.caprouter/audit.jsonl`
+  (`CAPROUTER_AUDIT` overrides the path);
 - `uninstall` / `rollback` / `trash --clean` preview by default and require `--yes`.
 
 Signature / trust root:
