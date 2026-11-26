@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3 — 2026-11-26
+
+### Fixed
+
+- **The release archive now contains the DSH bundle package.** 0.7.2 moved the bundle to the
+  repository root (`package.json`, `cordis.patch.yml`, `locale/`) but `release.ps1` still packaged
+  only the older allowlist, so an extracted release was missing the very files that
+  `tests/test_dsh_package.py` — which the archive does ship — asserts on. The allowlist now includes
+  `package.json`, `cordis.patch.yml` and `locale`, and `tests/test_release_assets.py` requires them,
+  so the packaging cannot regress the same way.
+- Re-ran the `v0.7.2` test matrix: one `macos-latest` job had been cancelled in the queue (which marks
+  the whole run failed and sends a failure mail); the re-run passed on all six legs.
+
 ## 0.7.2 — 2026-11-25
 
 Fixes the findings of an external audit of 0.7.1: one command-execution path, one crash, one broken

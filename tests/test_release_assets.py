@@ -28,6 +28,10 @@ REQUIRED_FILES = (
     "SECURITY.md",
     "CONTRIBUTING.md",
     ".mcp.json",
+    # 0.7.3: the zip ships the DSH bundle package, so `tests/test_dsh_package.py`
+    # (which is also in the zip) passes from an extracted release.
+    "package.json",
+    "cordis.patch.yml",
 )
 
 # These top-level directories must contribute at least one file to the zip
@@ -48,6 +52,8 @@ REQUIRED_PREFIXES = (
     # `caprouter eval`, so both must ship (0.7.2 added them to the allowlist).
     "tests/",
     "eval/",
+    # The bundle's display resources referenced from package.json.
+    "locale/",
 )
 
 # Path segments that must never appear in the zip (build junk / dev dirs)

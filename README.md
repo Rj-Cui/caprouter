@@ -869,9 +869,9 @@ tests/                       unit tests that do not depend on external models
 Load the repository root as the plugin directory (use the current Claude Code `/plugin` help for the
 exact install command).
 
-## Status (0.7.2, 2026-11-25)
+## Status (0.7.3, 2026-11-26)
 
-- **430 unit tests** in `tests/` (`python -m unittest discover -s tests`), zero runtime dependencies.
+- **435 unit tests** in `tests/` (`python -m unittest discover -s tests`), zero runtime dependencies.
   Every test runs against a temporary workspace and an isolated home; none calls a model or the network.
 - Prompt content paths are bound to the capability directory and the workspace; an explicit
   `--allow-external-content` is required for anything else.
@@ -1053,7 +1053,7 @@ python bin/caprouter.py doctor --workspace ./workspace
 python bin/caprouter.py eval --workspace ./workspace
 ```
 
-The suite in `tests/` (430 cases) is stdlib-only, needs no model or network, and is reproducible from any path:
+The suite in `tests/` (435 cases) is stdlib-only, needs no model or network, and is reproducible from any path:
 every test creates its own temporary workspace and redirects `HOME`/`USERPROFILE`/`APPDATA`, so it
 never touches the real profile. It covers pipeline acceptance/trust boundaries, project-nested skill
 indexing, UTF-8 BOM tolerance, the guard write roots and executable trust, host link/unlink safety,

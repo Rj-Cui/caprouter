@@ -1,6 +1,6 @@
 {
   "name": "caprouter",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Local capability bus: discover, route, probe, invoke and verify local skills, plugins and scripts over MCP, with deterministic acceptance checks and a local installer.",
   "author": {
     "name": "CapRouter"

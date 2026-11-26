@@ -1,6 +1,6 @@
 {
   "name": "caprouter-mcp",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "description": "Connects the local CapRouter capability bus to DeepSeek Harness as an MCP server.",
   "license": "MIT",
